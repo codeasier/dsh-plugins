@@ -346,6 +346,7 @@ jobs:
           createGithubReleases: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ (inputs.bootstrap == true || vars.RELEASE_PUBLISH != 'true') && secrets.NPM_TOKEN || '' }}
           NODE_AUTH_TOKEN: ${{ (inputs.bootstrap == true || vars.RELEASE_PUBLISH != 'true') && secrets.NPM_TOKEN || '' }}
           RELEASE_BOOTSTRAP: ${{ inputs.bootstrap }}
           RELEASE_PUBLISH: ${{ vars.RELEASE_PUBLISH }}

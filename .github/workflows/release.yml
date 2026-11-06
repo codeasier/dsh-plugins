@@ -66,6 +66,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # OIDC is used only once RELEASE_PUBLISH=true; until then, and for an
           # explicit bootstrap run, the token keeps publishing working.
+          NPM_TOKEN: ${{ (inputs.bootstrap == true || vars.RELEASE_PUBLISH != 'true') && secrets.NPM_TOKEN || '' }}
           NODE_AUTH_TOKEN: ${{ (inputs.bootstrap == true || vars.RELEASE_PUBLISH != 'true') && secrets.NPM_TOKEN || '' }}
           RELEASE_BOOTSTRAP: ${{ inputs.bootstrap }}
           RELEASE_PUBLISH: ${{ vars.RELEASE_PUBLISH }}
