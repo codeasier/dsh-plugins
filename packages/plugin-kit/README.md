@@ -4,11 +4,7 @@ Small, dependency-free helpers shared by this repository's DeepSeek Harness
 plugins. The package has no DSH peer dependencies, so the same code runs in a
 host plugin, a browser client module, a unit test, or a build script.
 
-## Install
-
-```sh
-pnpm add @codeasier/dsh-plugin-kit
-```
+## Use
 
 Plugins in this repository import it from source. The build (`tsdown`) aliases
 `@codeasier/dsh-plugin-kit` to `packages/plugin-kit/src/index.ts` and inlines the

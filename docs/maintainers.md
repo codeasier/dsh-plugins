@@ -67,7 +67,16 @@ Fix the cause, then re-run.
 ## First release of a package
 
 A new package starts at `0.1.0` with no changeset. Once it is on `main`, the next
-release run publishes it. If the workflow refuses, check that:
+release run publishes it. After the first successful publish:
+
+- remove the "Status: initial scaffold" blockquote from `README.md` and
+  `README.zh.md`;
+- restore the npm version badge for the first plugin;
+- verify the install commands in the README, `docs/install/dsh.md`, and
+  `docs/install/desktop.md` against the published package;
+- confirm the npm provenance badge and the package's file list.
+
+If the workflow refuses, check that:
 
 - the package is not `private`;
 - `publishConfig.access` is `public`;
