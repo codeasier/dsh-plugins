@@ -33,6 +33,7 @@ English | [中文](README.zh.md)
 | Plugin | What it adds | Version |
 |---|---|---|
 | [`@codeasier/dsh-plugin-hello`](./packages/dsh-plugin-hello) | A minimal, production-shaped DeepSeek Harness plugin: one configurable tool, display metadata, and independent release wiring. | `0.1.0` |
+| [`@codeasier/dsh-plugin-web-providers`](./packages/dsh-plugin-web-providers) | Configure any number of web search and web fetch vendors once, then switch the active one from Settings. | `0.1.0` |
 <!-- plugins:end -->
 
 Each plugin's README documents its behavior, configuration, and tested
