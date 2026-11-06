@@ -1,0 +1,8 @@
+# Bundle layer for @codeasier/dsh-plugin-hello.
+#
+# A bundle patch inserts rows; a profile-level patch overrides an existing row
+# by id. `config` is replaced wholesale, never deep-merged, so a user override
+# must restate every field it needs and may rely on Config defaults for the rest.
+- insert:
+    - id: hello
+      name: "@codeasier/dsh-plugin-hello"

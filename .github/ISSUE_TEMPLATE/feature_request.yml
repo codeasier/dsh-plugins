@@ -1,0 +1,76 @@
+name: Feature request
+description: Propose a plugin or an improvement to this repository.
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem before the solution. Requests that need no new
+        privileged capability and can be tested in CI are easiest to accept.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What are you proposing?
+      options:
+        - A new plugin
+        - A feature in an existing plugin
+        - Repository tooling, docs, or release process
+    validations:
+      required: true
+
+  - type: input
+    id: package
+    attributes:
+      label: Existing package, if any
+      placeholder: "@codeasier/dsh-plugin-hello"
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can you not do today? Who is affected?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What should the plugin or repository do? Include a usage sketch if useful.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Deployment
+      options:
+        - CLI
+        - Desktop
+        - Both
+        - Not applicable
+    validations:
+      required: true
+
+  - type: textarea
+    id: apis
+    attributes:
+      label: Services, APIs, or data involved
+      description: DSH services, external HTTP APIs, credentials, or files the feature needs.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and the plugin catalog.
+          required: true
+        - label: This request does not depend on a private service I cannot describe.
+          required: true

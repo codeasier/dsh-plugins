@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Hello",
+    "description": "Adds a configurable `hello` tool that greets a person by name."
+  }
+}

@@ -1,0 +1,8 @@
+# Bundle layer for __PACKAGE_NAME__.
+#
+# A bundle patch inserts rows. `config` is replaced wholesale by a profile
+# override, so leave defaults to the Config schema and document the keys in
+# README.md.
+- insert:
+    - id: __ROW_ID__
+      name: "__PACKAGE_NAME__"

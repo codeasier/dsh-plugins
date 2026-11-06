@@ -1,0 +1,55 @@
+{
+  "name": "dsh-plugins",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Community plugins for DeepSeek Harness (dsh): one independently versioned and published package per plugin.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codeasier/dsh-plugins.git"
+  },
+  "homepage": "https://github.com/codeasier/dsh-plugins#readme",
+  "bugs": {
+    "url": "https://github.com/codeasier/dsh-plugins/issues"
+  },
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "plugins"
+  ],
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/*\" run build",
+    "build:watch": "pnpm -r --parallel --filter \"./packages/*\" run dev",
+    "typecheck": "pnpm -r --filter \"./packages/*\" run typecheck",
+    "test": "pnpm -r --filter \"./packages/*\" run test",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check:conventions && pnpm check:docs && pnpm pack:check",
+    "check:conventions": "node scripts/check-conventions.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
+    "pack:check": "node scripts/check-packs.mjs",
+    "new": "node scripts/create-plugin.mjs",
+    "sync:registry": "node scripts/sync-registry.mjs",
+    "install:local": "node scripts/install-local.mjs",
+    "changeset": "changeset",
+    "version-packages": "changeset version && pnpm install --lockfile-only",
+    "release": "pnpm build && changeset publish",
+    "release:dry": "pnpm build && changeset publish --dry-run"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.6",
+    "@changesets/cli": "^2.31.1",
+    "@types/node": "^22.18.0",
+    "tsdown": "^0.23.7",
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.0"
+  }
+}

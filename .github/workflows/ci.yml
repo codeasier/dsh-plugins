@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.21.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint and format
+        run: pnpm lint
+
+      - name: Type-check
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Repository conventions
+        run: pnpm check:conventions
+
+      - name: Documentation links
+        run: pnpm check:docs
+
+      - name: Package contents
+        run: pnpm pack:check
+
+  integration:
+    name: Install into a clean DSH profile
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.21.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install repository dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and pack the reference plugin
+        run: |
+          pnpm build
+          mkdir -p "$RUNNER_TEMP/packs"
+          pnpm --filter @codeasier/dsh-plugin-hello pack --pack-destination "$RUNNER_TEMP/packs"
+          ls "$RUNNER_TEMP/packs"/*.tgz
+
+      - name: Install DeepSeek Harness
+        run: npm install --global @deepseek-ai/dsh@0.2.2-rc.1
+
+      - name: Compose it into an isolated profile
+        env:
+          DSH_HOME: ${{ runner.temp }}/dsh-home
+        run: |
+          mkdir -p "$DSH_HOME"
+          TARBALL="$(ls "$RUNNER_TEMP"/packs/*.tgz)"
+          dsh plugin --profile web add "$TARBALL"
+          dsh --profile web --dump-config | grep -A 3 'id: hello'
+
+          # The shipped web composition emits its own schema diagnostics on
+          # this DSH release, so the command can exit nonzero even when every
+          # composed module imports. Assert the plugin's own entry instead.
+          dsh --profile web --dump-config-schema > "$RUNNER_TEMP/schema.json" 2> "$RUNNER_TEMP/schema.err" || true
+          grep -q '"id": "hello"' "$RUNNER_TEMP/schema.json"
+          grep -q '"name": "@codeasier/dsh-plugin-hello"' "$RUNNER_TEMP/schema.json"
+          grep -q '"maxNameLength"' "$RUNNER_TEMP/schema.json"
+          grep -q '"greeting"' "$RUNNER_TEMP/schema.json"

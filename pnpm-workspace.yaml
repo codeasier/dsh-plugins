@@ -1,0 +1,11 @@
+packages:
+  - packages/*
+
+# No release-age delay: the lockfile pins exact resolutions and Dependabot
+# proposes updates through review. Remove this line to opt into pnpm's age gate.
+minimumReleaseAge: 0
+
+# pnpm 11 blocks dependency lifecycle scripts unless they are approved here.
+# Plugins in this repository must not depend on install-time scripts; add an
+# entry only with a reviewable reason, because it runs with your user account.
+onlyBuiltDependencies: []

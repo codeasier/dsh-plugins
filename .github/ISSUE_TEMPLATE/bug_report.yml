@@ -1,0 +1,94 @@
+name: Bug report
+description: Report a reproducible problem with a plugin or this repository.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please sanitize paths, tokens, and profile
+        configuration before submitting.
+
+        For a security issue, do not use this form: use
+        [private vulnerability reporting](https://github.com/codeasier/dsh-plugins/security/advisories/new).
+
+  - type: input
+    id: package
+    attributes:
+      label: Package and version
+      description: Which plugin (or the repository tooling) is affected?
+      placeholder: "@codeasier/dsh-plugin-hello 0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: dsh-version
+    attributes:
+      label: DeepSeek Harness version
+      description: Output of `dsh --version`, or the Desktop version from About.
+      placeholder: 0.2.2-rc.1
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where does it happen?
+      options:
+        - DSH CLI
+        - DSH Desktop
+        - Both
+        - Repository tooling (build, generator, checks)
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Operating system, Node.js, pnpm
+      placeholder: macOS 15.6, Node 24.9.0, pnpm 11.21.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands, in order. Include the profile name.
+      placeholder: |
+        1. dsh plugin --profile web add ...
+        2. Open a session and ask ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Startup diagnostics, error text, or `dsh --profile <name> --dump-config`.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I removed secrets, tokens, and personal paths from the report.
+          required: true
+        - label: I searched existing issues and the troubleshooting guide.
+          required: true

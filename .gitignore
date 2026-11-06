@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# test output
+coverage/
+
+# package manager and release scratch space
+.pack/
+.tmp/
+*.tgz
+*.log
+pnpm-debug.log*
+
+# local configuration
+.env
+.env.*
+!.env.example
+
+# editors and operating systems
+.DS_Store
+.idea/
+.vscode/

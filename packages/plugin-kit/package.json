@@ -1,0 +1,52 @@
+{
+  "name": "@codeasier/dsh-plugin-kit",
+  "version": "0.1.0",
+  "description": "Small, dependency-free runtime helpers shared by @codeasier DSH plugins.",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "utils"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codeasier/dsh-plugins.git",
+    "directory": "packages/plugin-kit"
+  },
+  "homepage": "https://github.com/codeasier/dsh-plugins/tree/main/packages/plugin-kit#readme",
+  "bugs": {
+    "url": "https://github.com/codeasier/dsh-plugins/issues"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "pack:check": "node ../../scripts/check-pack.mjs ."
+  }
+}

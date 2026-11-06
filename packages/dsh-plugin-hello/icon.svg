@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Hello plugin">
+  <rect width="64" height="64" rx="14" fill="#2563eb"/>
+  <path d="M16 21h26a5 5 0 0 1 5 5v13a5 5 0 0 1-5 5H31l-8 7v-7h-7a5 5 0 0 1-5-5V26a5 5 0 0 1 5-5Z" fill="#ffffff"/>
+  <circle cx="24" cy="32" r="2.4" fill="#2563eb"/>
+  <circle cx="32" cy="32" r="2.4" fill="#2563eb"/>
+  <circle cx="40" cy="32" r="2.4" fill="#2563eb"/>
+  <path d="M48 11l1.9 4.6L54.5 17.5l-4.6 1.9L48 24l-1.9-4.6L41.5 17.5l4.6-1.9L48 11Z" fill="#fbbf24"/>
+</svg>

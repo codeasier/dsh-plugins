@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Hello 示例插件",
+    "description": "注册一个可配置的 `hello` 工具，按名字打招呼。"
+  }
+}
