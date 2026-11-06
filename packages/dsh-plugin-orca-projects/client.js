@@ -38,6 +38,7 @@ window.__ModuleLoader__.load({
       'pinned.title': 'Pinned',
       'pinned.empty': 'Pinned sessions collect here, above every project.',
       'pinned.hint': 'Pinned',
+      'pinned.short': 'Pinned',
       'pinned.pin': 'Pin session',
       'pinned.unpin': 'Unpin session',
       'group.ungrouped': 'Ungrouped',
@@ -64,6 +65,7 @@ window.__ModuleLoader__.load({
       'project.added': 'Workspace “{name}” added',
       'project.autoExpand': 'Show sessions',
       'session.open': 'Open',
+      'session.reveal': 'Show in project',
       'session.pin': 'Pin session',
       'session.unpin': 'Unpin session',
       'session.archive': 'Archive session',
@@ -134,6 +136,7 @@ window.__ModuleLoader__.load({
       'pinned.title': '已置顶',
       'pinned.empty': '置顶的会话会集中显示在这里。',
       'pinned.hint': '已置顶',
+      'pinned.short': '置顶',
       'pinned.pin': '置顶会话',
       'pinned.unpin': '取消置顶',
       'group.ungrouped': '未分组',
@@ -159,6 +162,7 @@ window.__ModuleLoader__.load({
       'project.added': '已添加工作区“{name}”',
       'project.autoExpand': '展开会话',
       'session.open': '打开',
+      'session.reveal': '在项目中显示',
       'session.pin': '置顶会话',
       'session.unpin': '取消置顶',
       'session.archive': '归档会话',
@@ -356,6 +360,36 @@ window.__ModuleLoader__.load({
       if (left === right) return false
       if (left === '/') return right.startsWith('/')
       return right.startsWith(`${left}/`)
+    }
+
+    function worktreeFromPath(value) {
+      const path = normalizePath(value)
+      const marker = path.match(/\/(?:\.worktrees?|worktrees?)\/([^/]+)/i)
+      if (marker?.[1]) return { label: marker[1], main: false }
+      const orca = path.match(/\/orca\/workspaces\/[^/]+\/([^/]+)(?:\/|$)/i)
+      if (orca?.[1]) return { label: orca[1], main: false }
+      return { label: 'main', main: true }
+    }
+
+    function sessionWorktree(session, project) {
+      if (!session || !project?.path) return null
+      const root = normalizePath(project.path)
+      const rootWorktree = worktreeFromPath(root)
+      const cwd = session.cwd ? normalizePath(session.cwd) : null
+      if (!cwd || cwd === root) return rootWorktree
+      if (isAncestor(root, cwd)) {
+        const relative = cwd.slice(root.length + 1)
+        const segments = relative.split('/').filter(Boolean)
+        const index = segments.findIndex((segment) =>
+          /^(?:\.worktrees?|worktrees?)$/i.test(segment),
+        )
+        if (index >= 0 && segments[index + 1]) return { label: segments[index + 1], main: false }
+        if (!rootWorktree.main) return rootWorktree
+        return { label: segments[0] || rootWorktree.label, main: false }
+      }
+      const cwdWorktree = worktreeFromPath(cwd)
+      if (!cwdWorktree.main) return cwdWorktree
+      return { label: baseName(cwd), main: false }
     }
 
     function defaultState() {
@@ -902,6 +936,8 @@ window.__ModuleLoader__.load({
         pinned,
         archived,
         current,
+        guided,
+        worktree,
       } = props
       const pinHint = Boolean(props.pinHint)
       const title = sessionLabel(session, props.currentId, t)
@@ -917,22 +953,51 @@ window.__ModuleLoader__.load({
         : null
       const showPinnedHint = pinHint && pinned
       const showPinGlyph = pinned && !pinHint
+      const stacked = variant === 'pinned' || variant === 'flat' || variant === 'search'
+      const worktreeBadge = worktree
+        ? h(
+            'span',
+            {
+              className: cx('orca-worktree', worktree.main && 'is-main'),
+              title: session.cwd ? `${worktree.label} — ${session.cwd}` : worktree.label,
+            },
+            worktree.label,
+          )
+        : null
+      const pinnedHint = showPinnedHint
+        ? h('span', { className: 'orca-session-hint' }, t('pinned.short'))
+        : null
+      const archivedBadge = archived
+        ? h('span', { className: 'orca-session-hint is-archived' }, t('session.archivedHint'))
+        : null
+      const metaBadge =
+        meta && !(worktree && worktree.label === meta)
+          ? h('span', { className: 'orca-session-meta', title: meta }, meta)
+          : null
+      const statusDot = h(StatusDot, { running: session.running })
+      const pinGlyph = showPinGlyph
+        ? h(Icon, { name: 'pinFilled', size: 10, className: 'orca-session-pin' })
+        : null
+      const titleBadge = h('span', { className: 'orca-session-title', title }, title)
+      const inlineWorktree = worktree && !worktree.main ? worktreeBadge : null
 
       const main = h(
         'div',
         {
-          className: cx('orca-session-main', current && 'is-current'),
+          className: cx('orca-session-main', current && 'is-current', stacked && 'is-stacked'),
           role: 'button',
           tabIndex: 0,
           draggable: drag ? true : undefined,
           style: {
-            paddingLeft: (variant === 'project' || variant === 'tree' ? 25 : 9) + depth * 13,
+            paddingLeft:
+              (variant === 'project' || variant === 'tree' ? (guided ? 8 : 25) : 9) +
+              depth * (guided ? 12 : 13),
           },
-          onClick: () => actions.open(session),
+          onClick: () => actions.open(session, variant),
           onKeyDown: (event) => {
             if (event.key === 'Enter' || event.key === ' ') {
               stopEvent(event)
-              actions.open(session)
+              actions.open(session, variant)
             }
           },
           onDragStart: drag ? (event) => drag.start(event, session) : undefined,
@@ -940,23 +1005,19 @@ window.__ModuleLoader__.load({
           onDrop: drag ? (event) => drag.drop(event, session) : undefined,
           onDragEnd: drag ? drag.end : undefined,
         },
-        h(StatusDot, { running: session.running }),
-        showPinGlyph
-          ? h(Icon, { name: 'pinFilled', size: 10, className: 'orca-session-pin' })
-          : null,
-        h('span', { className: 'orca-session-title', title }, title),
-        showPinnedHint
-          ? h(
-              'span',
-              { className: 'orca-session-hint' },
-              h(Icon, { name: 'pinFilled', size: 9 }),
-              t('pinned.hint'),
-            )
-          : null,
-        archived
-          ? h('span', { className: 'orca-session-hint is-archived' }, t('session.archivedHint'))
-          : null,
-        meta ? h('span', { className: 'orca-session-meta', title: meta }, meta) : null,
+        stacked
+          ? [
+              h('div', { className: 'orca-session-line' }, statusDot, pinGlyph, titleBadge),
+              h(
+                'div',
+                { className: 'orca-session-subline' },
+                worktreeBadge,
+                metaBadge,
+                pinnedHint,
+                archivedBadge,
+              ),
+            ]
+          : [statusDot, pinGlyph, titleBadge, inlineWorktree, pinnedHint, archivedBadge],
       )
 
       const hover = h(
@@ -977,7 +1038,7 @@ window.__ModuleLoader__.load({
         h(IconButton, {
           icon: 'more',
           label: t('action.viewOptions'),
-          onClick: (event) => actions.menu(event, session, pinned, archived),
+          onClick: (event) => actions.menu(event, session, pinned, archived, variant),
         }),
       )
 
@@ -990,6 +1051,7 @@ window.__ModuleLoader__.load({
             pinned && pinHint && 'is-pinned-ref',
             archived && 'is-archived',
             current && 'is-current',
+            stacked && 'is-stacked',
           ),
           'data-session-id': session.id,
         },
@@ -1017,6 +1079,7 @@ window.__ModuleLoader__.load({
         drag,
       } = props
       const expanded = !collapsed
+      const guided = variant === 'orca'
       const [sessionLimit, setSessionLimit] = React.useState(8)
       const sessions = variant === 'orca' ? project.sessions : project.pinnedFirst
       const visibleSessions = sessions.filter(
@@ -1083,7 +1146,7 @@ window.__ModuleLoader__.load({
         expanded
           ? h(
               'div',
-              { className: 'orca-project-body' },
+              { className: cx('orca-project-body', guided && 'is-guided') },
               beforeSessions || null,
               sessions.length > 0
                 ? visibleSessions.map((session) =>
@@ -1100,6 +1163,8 @@ window.__ModuleLoader__.load({
                       archived: archivedSet.has(session.id),
                       current: currentId === session.id,
                       currentId,
+                      guided,
+                      worktree: sessionWorktree(session, project),
                       drag:
                         variant === 'orca' && drag
                           ? {
@@ -1124,7 +1189,9 @@ window.__ModuleLoader__.load({
                     {
                       type: 'button',
                       className: 'orca-show-more',
-                      style: { paddingLeft: 25 + (depth + 1) * 13 },
+                      style: {
+                        paddingLeft: (guided ? 10 : 25) + (depth + 1) * (guided ? 12 : 13),
+                      },
                       onClick: () => setSessionLimit(sessionLimit + 8),
                     },
                     t('sessions.expand', { n: hiddenSessions }),
@@ -1177,6 +1244,7 @@ window.__ModuleLoader__.load({
                       archived: archivedSet.has(entry.session.id),
                       current: currentId === entry.session.id,
                       currentId,
+                      worktree: sessionWorktree(entry.session, entry.project),
                     }),
                   )
                 : h('div', { className: 'orca-empty-inline' }, t('pinned.empty')),
@@ -1539,6 +1607,7 @@ window.__ModuleLoader__.load({
             archived: archivedSet.has(entry.session.id),
             current: currentId === entry.session.id,
             currentId,
+            worktree: sessionWorktree(entry.session, entry.project),
           }),
         ),
         view.flat.length === 0
@@ -1570,6 +1639,7 @@ window.__ModuleLoader__.load({
             archived: archivedSet.has(entry.session.id),
             current: currentId === entry.session.id,
             currentId,
+            worktree: sessionWorktree(entry.session, entry.project),
           }),
         ),
         view.searchResults.length === 0
@@ -1936,7 +2006,7 @@ window.__ModuleLoader__.load({
       const closeDialog = React.useCallback(() => setDialog(null), [])
 
       const openMenuAtRect = React.useCallback((rect, items, width) => {
-        const menuWidth = Math.min(width || 228, Math.max(180, window.innerWidth - 16))
+        const menuWidth = Math.min(width || 248, Math.max(180, window.innerWidth - 16))
         const estimated = items.reduce(
           (sum, item) => sum + (item.section ? 26 : item.divider ? 9 : 31),
           8,
@@ -1974,21 +2044,58 @@ window.__ModuleLoader__.load({
         setState((prev) => toggleCollapsed(prev, `p:${key}`, isCurrent))
       }
 
-      const openSession = (session) => {
+      const openSession = (session, fromVariant) => {
         if (archivedSet.has(session.id)) {
           showToast(t('session.archivedNotOpenable'), 'error')
           return
         }
         const project = view.projectBySession.get(session.id)
         if (project) {
+          const key = `p:${project.key}`
           setState((prev) => {
-            const key = `p:${project.key}`
             const collapsed = isCollapsed(prev, key, project.key === currentProjectKey)
+            let groupCollapsed = false
+            if (prev.mode === 'orca' && prev.groups.length > 0) {
+              const assigned = prev.assignments ? prev.assignments[project.key] : null
+              const valid = assigned && prev.groups.some((group) => group.id === assigned)
+              groupCollapsed = isCollapsed(prev, `g:${valid ? assigned : UNGROUPED}`, true)
+            }
+            if (fromVariant === 'pinned') {
+              if (!collapsed && !groupCollapsed) return prev
+              return { ...prev, collapsed: { ...prev.collapsed, [key]: true } }
+            }
             if (!collapsed) return prev
             return { ...prev, collapsed: { ...prev.collapsed, [key]: false } }
           })
         }
         openSessionService(session.id)
+      }
+
+      const revealSession = (session) => {
+        const project = view.projectBySession.get(session.id)
+        if (!project) return
+        setState((prev) => {
+          const collapsed = { ...(prev.collapsed || {}) }
+          if (prev.mode === 'orca' && Array.isArray(prev.groups) && prev.groups.length > 0) {
+            const assigned = prev.assignments ? prev.assignments[project.key] : null
+            const valid = assigned && prev.groups.some((group) => group.id === assigned)
+            collapsed[`g:${valid ? assigned : UNGROUPED}`] = false
+          }
+          collapsed[`p:${project.key}`] = false
+          return { ...prev, collapsed }
+        })
+        const selector = `.orca-session--project[data-session-id="${session.id}"], .orca-session--tree[data-session-id="${session.id}"]`
+        let attempts = 0
+        const scrollToRow = () => {
+          const row = document.querySelector(selector)
+          if (row) {
+            row.scrollIntoView({ block: 'nearest' })
+            return
+          }
+          attempts += 1
+          if (attempts < 30) window.setTimeout(scrollToRow, 100)
+        }
+        window.setTimeout(scrollToRow, 50)
       }
 
       const pin = async (session) => {
@@ -2208,7 +2315,7 @@ window.__ModuleLoader__.load({
         },
       }
 
-      const openSessionMenu = (event, session, pinned, archived) => {
+      const openSessionMenu = (event, session, pinned, archived, variant) => {
         const rect = event.currentTarget.getBoundingClientRect()
         const items = []
         if (!archived) {
@@ -2218,7 +2325,18 @@ window.__ModuleLoader__.load({
             onSelect: () => (pinned ? unpin(session) : pin(session)),
           })
         }
-        items.push({ label: t('session.open'), icon: 'open', onSelect: () => openSession(session) })
+        if (variant === 'pinned') {
+          items.push({
+            label: t('session.reveal'),
+            icon: 'folderOpen',
+            onSelect: () => revealSession(session),
+          })
+        }
+        items.push({
+          label: t('session.open'),
+          icon: 'open',
+          onSelect: () => openSession(session, variant),
+        })
         items.push({ divider: true })
         items.push({ label: t('session.copyId'), icon: 'copy', onSelect: () => copy(session) })
         items.push(
@@ -2575,6 +2693,12 @@ window.__ModuleLoader__.load({
     }
 
     const ORCA_CSS = `
+      .orca-root,
+      .orca-root *,
+      .orca-root *::before,
+      .orca-root *::after {
+        box-sizing: border-box;
+      }
       .orca-root {
         display: flex;
         flex-direction: column;
@@ -2582,23 +2706,24 @@ window.__ModuleLoader__.load({
         min-height: 0;
         height: 100%;
         color: var(--dsw-alias-label-primary);
-        font-size: 13px;
+        font-size: 14px;
+        line-height: 1.4;
       }
       .orca-header {
         flex: none;
-        padding: 1px 1px 0;
+        padding: 2px 2px 0;
       }
       .orca-title-row {
         display: flex;
         align-items: center;
         gap: 6px;
-        height: 30px;
+        height: 32px;
         min-width: 0;
       }
       .orca-title {
         margin-left: 5px;
         color: var(--dsw-alias-label-secondary);
-        font-size: 11px;
+        font-size: 12px;
         font-weight: 600;
         letter-spacing: 0.04em;
         text-transform: uppercase;
@@ -2614,8 +2739,8 @@ window.__ModuleLoader__.load({
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 24px;
-        height: 24px;
+        width: 26px;
+        height: 26px;
         padding: 0;
         border: 0;
         border-radius: var(--dsw-radius-sm, 6px);
@@ -2625,12 +2750,12 @@ window.__ModuleLoader__.load({
         flex: none;
       }
       .orca-icon-button:hover {
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
         color: var(--dsw-alias-label-primary);
       }
       .orca-icon-button.is-active {
         color: var(--dsw-alias-brand-primary);
-        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent);
+        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 11%, transparent);
       }
       .orca-icon-button.is-danger {
         color: var(--dsw-alias-state-error-primary);
@@ -2652,13 +2777,13 @@ window.__ModuleLoader__.load({
       .orca-search-field {
         display: flex;
         align-items: center;
-        gap: 5px;
-        height: 30px;
-        margin: 3px 0 5px;
-        padding: 0 4px 0 8px;
+        gap: 6px;
+        height: 32px;
+        margin: 3px 0 6px;
+        padding: 0 4px 0 9px;
         border: 1px solid var(--dsw-alias-border-l1);
         border-radius: var(--dsw-radius-sm, 6px);
-        background: color-mix(in srgb, var(--dsw-alias-bg-base) 40%, transparent);
+        background: color-mix(in srgb, var(--dsw-alias-bg-base) 45%, transparent);
       }
       .orca-search-field:focus-within {
         border-color: var(--dsw-alias-brand-primary);
@@ -2677,7 +2802,7 @@ window.__ModuleLoader__.load({
         background: transparent;
         color: var(--dsw-alias-label-primary);
         font: inherit;
-        font-size: 12px;
+        font-size: 13px;
       }
       .orca-search-field input::placeholder {
         color: var(--dsw-alias-label-secondary);
@@ -2687,7 +2812,7 @@ window.__ModuleLoader__.load({
         min-height: 0;
         overflow-x: hidden;
         overflow-y: auto;
-        padding: 2px 4px 12px;
+        padding: 4px 6px 16px;
         scrollbar-width: thin;
         scrollbar-color: var(--dsw-alias-scrollbar-bg-l2, transparent) transparent;
       }
@@ -2700,8 +2825,8 @@ window.__ModuleLoader__.load({
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 16px;
-        height: 16px;
+        min-width: 17px;
+        height: 17px;
         padding: 0 5px;
         border-radius: 999px;
         background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
@@ -2715,8 +2840,8 @@ window.__ModuleLoader__.load({
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 12px;
-        height: 12px;
+        width: 13px;
+        height: 13px;
         color: var(--dsw-alias-label-secondary);
         transform: rotate(0deg);
         transition: transform 120ms ease;
@@ -2726,17 +2851,21 @@ window.__ModuleLoader__.load({
         transform: rotate(90deg);
       }
       .orca-pinned-group {
-        margin: 2px 0 7px;
-        padding: 3px;
-        border: 1px solid var(--dsw-alias-border-l1);
-        border-radius: 10px;
-        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 4%, transparent);
-      }
-      .orca-pinned-group.is-collapsed {
-        padding-bottom: 3px;
+        margin: 2px 0 10px;
+        padding: 4px;
+        border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 24%, var(--dsw-alias-border-l1));
+        border-radius: 11px;
+        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 6%, transparent);
       }
       .orca-pinned-head {
-        padding-left: 4px;
+        height: 30px;
+        padding: 0 6px;
+        border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 14%, transparent);
+        border-radius: 7px 7px 0 0;
+        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 5%, transparent);
+      }
+      .orca-pinned-group.is-collapsed .orca-pinned-head {
+        border-bottom-color: transparent;
       }
       .orca-pinned-icon {
         color: var(--dsw-alias-brand-primary);
@@ -2745,10 +2874,13 @@ window.__ModuleLoader__.load({
         display: flex;
         flex-direction: column;
         gap: 1px;
-        padding: 2px 0 1px;
+        padding: 4px 1px 1px;
       }
       .orca-group {
         border-radius: 8px;
+      }
+      .orca-group + .orca-group {
+        margin-top: 8px;
       }
       .orca-group-row {
         position: relative;
@@ -2756,24 +2888,27 @@ window.__ModuleLoader__.load({
       .orca-group-head {
         display: flex;
         align-items: center;
-        gap: 5px;
-        height: 27px;
+        gap: 6px;
+        height: 30px;
         min-width: 0;
-        padding: 0 5px;
-        border-radius: var(--dsw-radius-sm, 6px);
+        padding: 0 8px;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent);
         color: var(--dsw-alias-label-secondary);
-        font-size: 11px;
+        font-size: 12px;
         font-weight: 600;
-        letter-spacing: 0.03em;
+        letter-spacing: 0.02em;
         cursor: pointer;
         user-select: none;
       }
       .orca-group-head:hover {
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+        color: var(--dsw-alias-label-primary);
       }
       .orca-group-icon {
         flex: none;
-        opacity: 0.8;
+        opacity: 0.85;
       }
       .orca-group-title {
         flex: 1;
@@ -2784,8 +2919,8 @@ window.__ModuleLoader__.load({
       }
       .orca-group-actions {
         position: absolute;
-        top: 2px;
-        right: 3px;
+        top: 3px;
+        right: 4px;
         display: none;
         align-items: center;
         background: var(--dsw-specific-sidebar-fill);
@@ -2799,15 +2934,30 @@ window.__ModuleLoader__.load({
         display: flex;
         flex-direction: column;
         gap: 1px;
-        padding: 1px 0 3px;
+        margin: 2px 0 0 10px;
+        padding: 2px 0 4px 8px;
+        border-left: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 10%, transparent);
       }
       .orca-group--ungrouped {
-        margin-top: 6px;
+        margin-top: 10px;
+      }
+      .orca-group--ungrouped .orca-group-head {
+        height: 32px;
+        padding-top: 3px;
+        border-top: 1px solid var(--dsw-alias-border-l1);
+        border-radius: 0;
+        background: transparent;
+      }
+      .orca-group--ungrouped .orca-group-head:hover {
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent);
       }
       .orca-project {
         display: flex;
         flex-direction: column;
         gap: 1px;
+      }
+      .orca-project + .orca-project {
+        margin-top: 1px;
       }
       .orca-project-row {
         position: relative;
@@ -2815,17 +2965,19 @@ window.__ModuleLoader__.load({
       .orca-project-head {
         display: flex;
         align-items: center;
-        gap: 5px;
-        height: 28px;
-        padding: 0 52px 0 4px;
+        gap: 6px;
+        height: 32px;
+        padding: 0 56px 0 4px;
         border-radius: var(--dsw-radius-sm, 6px);
         color: var(--dsw-alias-label-primary);
-        font-size: 12.5px;
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 20px;
         cursor: pointer;
         user-select: none;
       }
       .orca-project-head:hover {
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
       }
       .orca-project-folder {
         flex: none;
@@ -2840,8 +2992,8 @@ window.__ModuleLoader__.load({
       }
       .orca-project-actions {
         position: absolute;
-        top: 2px;
-        right: 3px;
+        top: 3px;
+        right: 4px;
         display: none;
         align-items: center;
         gap: 1px;
@@ -2858,34 +3010,67 @@ window.__ModuleLoader__.load({
         gap: 1px;
         padding: 1px 0 2px;
       }
+      .orca-project-body.is-guided {
+        margin-left: 14px;
+        padding: 2px 0 4px 6px;
+        border-left: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+      }
       .orca-session {
         position: relative;
         display: flex;
         align-items: center;
         min-width: 0;
-        height: 27px;
+        height: 30px;
         border-radius: var(--dsw-radius-sm, 6px);
       }
       .orca-session-main {
         display: flex;
         align-items: center;
-        gap: 5px;
+        gap: 6px;
         min-width: 0;
         width: 100%;
         height: 100%;
-        padding-right: 54px;
+        padding-right: 60px;
         border-radius: var(--dsw-radius-sm, 6px);
         color: var(--dsw-alias-label-primary);
-        font-size: 12px;
+        font-size: 14px;
+        line-height: 20px;
         cursor: pointer;
         user-select: none;
       }
       .orca-session-main:hover {
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
+      }
+      .orca-session.is-stacked {
+        height: 46px;
+      }
+      .orca-session-main.is-stacked {
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: center;
+        gap: 3px;
+        padding-top: 4px;
+        padding-bottom: 4px;
+      }
+      .orca-session-line,
+      .orca-session-subline {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+      .orca-session-subline {
+        padding-left: 13px;
+      }
+      .orca-session-subline .orca-session-meta {
+        max-width: 50%;
+      }
+      .orca-session-subline .orca-worktree {
+        max-width: 92px;
       }
       .orca-session.is-current .orca-session-main,
       .orca-session-main.is-current {
-        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent);
+        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 13%, transparent);
         box-shadow: inset 2px 0 0 var(--dsw-alias-brand-primary);
       }
       .orca-session-title {
@@ -2897,29 +3082,53 @@ window.__ModuleLoader__.load({
       }
       .orca-session-meta {
         flex: none;
-        max-width: 40%;
+        max-width: 34%;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         color: var(--dsw-alias-label-secondary);
-        font-size: 10px;
-        opacity: 0.8;
+        font-size: 12px;
       }
       .orca-session-pin {
         flex: none;
         color: var(--dsw-alias-brand-primary);
+      }
+      .orca-worktree {
+        display: inline-flex;
+        align-items: center;
+        flex: none;
+        max-width: 82px;
+        height: 16px;
+        padding: 0 5px;
+        border: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent);
+        border-radius: 999px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--dsw-alias-label-secondary);
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 4%, transparent);
+        font-size: 10px;
+        line-height: 14px;
+      }
+      .orca-worktree.is-main {
+        color: var(--dsw-alias-label-secondary);
+      }
+      .orca-worktree:not(.is-main) {
+        color: var(--dsw-alias-brand-primary);
+        border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 26%, transparent);
+        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent);
       }
       .orca-session-hint {
         display: inline-flex;
         align-items: center;
         gap: 2px;
         flex: none;
-        height: 15px;
+        height: 16px;
         padding: 0 4px;
         border: 1px solid var(--dsw-alias-border-l1);
         border-radius: 999px;
         color: var(--dsw-alias-label-secondary);
-        font-size: 9.5px;
+        font-size: 10px;
         line-height: 1;
       }
       .orca-session-hint.is-archived {
@@ -2927,20 +3136,26 @@ window.__ModuleLoader__.load({
         border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 35%, transparent);
       }
       .orca-session.is-pinned-ref {
-        opacity: 0.52;
+        opacity: 0.55;
       }
       .orca-session.is-archived {
         opacity: 0.45;
       }
       .orca-session-actions {
         position: absolute;
-        top: 1px;
-        right: 2px;
+        top: 2px;
+        right: 3px;
         display: none;
         align-items: center;
         gap: 1px;
         background: var(--dsw-specific-sidebar-fill);
         border-radius: var(--dsw-radius-sm, 6px);
+      }
+      .orca-project-actions .orca-icon-button,
+      .orca-session-actions .orca-icon-button,
+      .orca-group-actions .orca-icon-button {
+        width: 24px;
+        height: 24px;
       }
       .orca-session:hover .orca-session-actions,
       .orca-session:focus-within .orca-session-actions {
@@ -2951,8 +3166,8 @@ window.__ModuleLoader__.load({
         visibility: hidden;
       }
       .orca-status-dot {
-        width: 6px;
-        height: 6px;
+        width: 7px;
+        height: 7px;
         border-radius: 50%;
         background: var(--dsw-alias-state-idle-primary);
         opacity: 0.5;
@@ -2968,9 +3183,9 @@ window.__ModuleLoader__.load({
         50% { opacity: 0.45; transform: scale(0.82); }
       }
       .orca-empty-inline {
-        padding: 7px 12px 8px;
+        padding: 8px 12px;
         color: var(--dsw-alias-label-secondary);
-        font-size: 11px;
+        font-size: 12px;
         line-height: 1.5;
       }
       .orca-show-more {
@@ -2984,7 +3199,7 @@ window.__ModuleLoader__.load({
         background: transparent;
         color: var(--dsw-alias-label-secondary);
         font: inherit;
-        font-size: 10.5px;
+        font-size: 12px;
         text-align: left;
         cursor: pointer;
       }
@@ -3005,8 +3220,8 @@ window.__ModuleLoader__.load({
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 38px;
-        height: 38px;
+        width: 40px;
+        height: 40px;
         margin-bottom: 2px;
         border: 1px solid var(--dsw-alias-border-l1);
         border-radius: 50%;
@@ -3014,33 +3229,27 @@ window.__ModuleLoader__.load({
       }
       .orca-empty-title {
         color: var(--dsw-alias-label-primary);
-        font-size: 12.5px;
+        font-size: 14px;
         font-weight: 500;
       }
       .orca-empty-hint {
-        max-width: 180px;
-        font-size: 11px;
+        max-width: 190px;
+        font-size: 12px;
         line-height: 1.5;
       }
       .orca-text-button {
         margin-top: 2px;
-        padding: 4px 8px;
+        padding: 5px 9px;
         border: 0;
         border-radius: var(--dsw-radius-sm, 6px);
         background: transparent;
         color: var(--dsw-alias-brand-primary);
         font: inherit;
-        font-size: 11.5px;
+        font-size: 13px;
         cursor: pointer;
       }
       .orca-text-button:hover {
         background: color-mix(in srgb, var(--dsw-alias-brand-primary) 9%, transparent);
-      }
-      .orca-root,
-      .orca-root *,
-      .orca-root *::before,
-      .orca-root *::after {
-        box-sizing: border-box;
       }
       .orca-menu {
         position: fixed;
@@ -3052,12 +3261,13 @@ window.__ModuleLoader__.load({
         border-radius: 10px;
         background: var(--dsw-alias-bg-layer-1);
         box-shadow: 0 10px 30px color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent);
+        font-size: 13px;
         scrollbar-width: thin;
       }
       .orca-menu-section {
-        padding: 7px 8px 4px;
+        padding: 8px 8px 4px;
         color: var(--dsw-alias-label-secondary);
-        font-size: 10px;
+        font-size: 11px;
         font-weight: 600;
         letter-spacing: 0.04em;
         text-transform: uppercase;
@@ -3065,16 +3275,16 @@ window.__ModuleLoader__.load({
       .orca-menu-item {
         display: flex;
         align-items: center;
-        gap: 7px;
+        gap: 8px;
         width: 100%;
-        height: 30px;
-        padding: 0 7px;
+        height: 32px;
+        padding: 0 8px;
         border: 0;
         border-radius: var(--dsw-radius-sm, 6px);
         background: transparent;
         color: var(--dsw-alias-label-primary);
         font: inherit;
-        font-size: 12px;
+        font-size: 13px;
         text-align: left;
         cursor: pointer;
       }
@@ -3092,7 +3302,7 @@ window.__ModuleLoader__.load({
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 14px;
+        width: 15px;
         flex: none;
         color: var(--dsw-alias-label-secondary);
       }
@@ -3141,7 +3351,7 @@ window.__ModuleLoader__.load({
         padding: 16px;
         border: 1px solid var(--dsw-alias-border-l1);
         border-radius: 12px;
-        background: var(--dsw-alias-bg-overlay);
+        background: var(--dsw-alias-bg-layer-1);
         box-shadow: 0 14px 40px color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent);
       }
       .orca-dialog-title {
@@ -3153,21 +3363,21 @@ window.__ModuleLoader__.load({
       .orca-dialog-description {
         margin-top: 8px;
         color: var(--dsw-alias-label-secondary);
-        font-size: 12px;
+        font-size: 13px;
         line-height: 1.55;
       }
       .orca-dialog-input {
         width: 100%;
-        height: 32px;
+        height: 34px;
         margin-top: 13px;
-        padding: 0 8px;
+        padding: 0 9px;
         border: 1px solid var(--dsw-alias-border-l1);
         border-radius: var(--dsw-radius-sm, 6px);
         outline: 0;
         background: var(--dsw-alias-bg-base);
         color: var(--dsw-alias-label-primary);
         font: inherit;
-        font-size: 13px;
+        font-size: 14px;
       }
       .orca-dialog-input:focus {
         border-color: var(--dsw-alias-brand-primary);
@@ -3179,14 +3389,14 @@ window.__ModuleLoader__.load({
         margin-top: 16px;
       }
       .orca-button {
-        height: 28px;
-        padding: 0 12px;
+        height: 30px;
+        padding: 0 13px;
         border: 1px solid var(--dsw-alias-border-l1);
         border-radius: var(--dsw-radius-sm, 6px);
         background: transparent;
         color: var(--dsw-alias-label-primary);
         font: inherit;
-        font-size: 12px;
+        font-size: 13px;
         cursor: pointer;
       }
       .orca-button:hover {
@@ -3214,15 +3424,15 @@ window.__ModuleLoader__.load({
         display: flex;
         align-items: flex-start;
         gap: 7px;
-        width: 232px;
+        width: 244px;
         max-width: calc(100vw - 24px);
-        padding: 8px 10px;
+        padding: 9px 10px;
         border: 1px solid var(--dsw-alias-border-l1);
         border-radius: 8px;
-        background: var(--dsw-alias-bg-overlay);
+        background: var(--dsw-alias-bg-layer-1);
         box-shadow: 0 8px 24px color-mix(in srgb, var(--dsw-alias-label-primary) 18%, transparent);
         color: var(--dsw-alias-label-primary);
-        font-size: 11.5px;
+        font-size: 12px;
         line-height: 1.45;
       }
       .orca-toast.is-error {
@@ -3352,6 +3562,8 @@ window.__ModuleLoader__.load({
       isCollapsed,
       normalizePath,
       isAncestor,
+      worktreeFromPath,
+      sessionWorktree,
       findCurrentId,
       sessionLabel,
       sortProjects,
