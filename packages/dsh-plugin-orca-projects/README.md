@@ -25,12 +25,21 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   does not expand its project; use the pinned row's `...` menu → **在项目中显示**
   to expand the project and scroll to the original row. Unpin it and it is an
   ordinary project session again.
+- **Compact session cards.** Every session is a two-line card: a title line,
+  then worktree and project chips. Project, pinned, flat, and search rows share
+  the same card geometry, with the project chip only where the project is not
+  already the surrounding header.
 - **Worktree labels.** Every session carries `main` for the workspace root or
   the named worktree derived from its working directory, such as
   `.worktrees/feature-a` or Orca's `workspaces/<project>/2.0-review`.
-  Cross-project, pinned, and flat rows always show the label; project rows show
-  a named worktree when it is not already the project title, and omit the
+  Cross-project, pinned, and flat cards always show the label; project cards
+  show a named worktree when it is not already the project title, and omit the
   implicit `main`.
+- **Live status and active filter.** Running sessions show an animated yellow
+  spinner, waiting-for-user interactions an amber dot, finished-but-unviewed
+  completions a green dot, and inactive sessions a gray dot. In Orca-like mode,
+  View options → **仅活跃会话** hides every non-active session and project; the
+  resulting empty state offers **查看全部会话** to switch the filter off.
 - **Custom groups.** Use a project's `...` menu → **移动到分组** to create a group
   or move the project into one. You can also drag a project onto a group. Group
   headers can be renamed, deleted, and used to add projects; deleting a group
@@ -142,6 +151,9 @@ client at DSH 0.2.2-rc.1; see [Verification](#verification).
   workspace path without a recognized worktree marker (`.worktrees/`,
   `.worktree/`, `worktrees/`, or Orca's `workspaces/<project>/<worktree>`) is
   labeled `main`.
+- Green marks a finished-but-unviewed completion; an idle session whose
+  completion was already viewed returns to gray. **Active** for the filter means
+  running or waiting for a user interaction, not merely completed.
 - Adding a project requires a working `ctx.uiWorkspace.pickDirectory()`. A
   remote browser without the host directory picker cannot add projects.
 - This version does not offer session rename, fork, or delete; use the

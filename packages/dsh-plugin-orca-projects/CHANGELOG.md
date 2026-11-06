@@ -11,3 +11,8 @@
   row's menu. Opening a pinned session leaves its project collapsed.
 - Match the shipped sidebar's 14px project and session titles, add a clearer
   group/project/session hierarchy, and keep light and dark theme support.
+- Render sessions as compact two-line cards with project and worktree chips, and
+  add live status indicators (yellow running spinner, amber waiting, green
+  finished-unviewed, gray idle).
+- Add an Orca-like **Active sessions only** filter that hides non-active
+  sessions and projects and restores them from its empty state.

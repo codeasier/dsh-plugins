@@ -9,6 +9,8 @@ window.__ModuleLoader__.load({
     const UNGROUPED = '__ungrouped__'
     const MODES = ['orca', 'workspace', 'workspace-tree', 'flat']
     const FILTERS = ['hide', 'all', 'only']
+    const EMPTY_STATUS = new Map()
+    const SessionStatusContext = React.createContext(null)
 
     const en = {
       'title.projects': 'Projects',
@@ -35,6 +37,10 @@ window.__ModuleLoader__.load({
       'filter.hide': 'Hide archived',
       'filter.all': 'All conversations (show archived)',
       'filter.only': 'Archived only',
+      'filter.activeOnly': 'Active sessions only',
+      'active.empty': 'No active sessions',
+      'active.hint': 'Turn off Active sessions only to see every session.',
+      'active.showAll': 'Show all sessions',
       'pinned.title': 'Pinned',
       'pinned.empty': 'Pinned sessions collect here, above every project.',
       'pinned.hint': 'Pinned',
@@ -133,6 +139,10 @@ window.__ModuleLoader__.load({
       'filter.hide': '隐藏已归档',
       'filter.all': '全部对话（显示已归档）',
       'filter.only': '仅显示已归档',
+      'filter.activeOnly': '仅活跃会话',
+      'active.empty': '暂无活跃会话',
+      'active.hint': '关闭“仅活跃会话”可查看全部会话。',
+      'active.showAll': '查看全部会话',
       'pinned.title': '已置顶',
       'pinned.empty': '置顶的会话会集中显示在这里。',
       'pinned.hint': '已置顶',
@@ -398,6 +408,7 @@ window.__ModuleLoader__.load({
         mode: 'orca',
         orderBy: 'updated',
         archivedFilter: 'hide',
+        activeOnly: false,
         groups: [],
         assignments: {},
         projectOrder: {},
@@ -417,6 +428,7 @@ window.__ModuleLoader__.load({
       if (MODES.includes(raw.mode)) next.mode = raw.mode
       if (raw.orderBy === 'manual' || raw.orderBy === 'updated') next.orderBy = raw.orderBy
       if (FILTERS.includes(raw.archivedFilter)) next.archivedFilter = raw.archivedFilter
+      if (typeof raw.activeOnly === 'boolean') next.activeOnly = raw.activeOnly
 
       if (Array.isArray(raw.groups)) {
         const seen = new Set()
@@ -573,6 +585,23 @@ window.__ModuleLoader__.load({
       return true
     }
 
+    function isActiveSession(summary, statusMap) {
+      if (!summary) return false
+      const status =
+        statusMap && typeof statusMap.get === 'function' ? statusMap.get(summary.id) : undefined
+      if (status) {
+        if (status.running === true || status.pendingInteraction != null) return true
+        if (status.running === false) return false
+      }
+      return summary.running === true
+    }
+
+    function _sessionHasPendingInteraction(summary, statusMap) {
+      const status =
+        statusMap && typeof statusMap.get === 'function' ? statusMap.get(summary.id) : undefined
+      return Boolean(status?.pendingInteraction)
+    }
+
     function compareSessions(left, right) {
       const delta = (Number(right.updatedAt) || 0) - (Number(left.updatedAt) || 0)
       if (delta !== 0) return delta
@@ -684,8 +713,10 @@ window.__ModuleLoader__.load({
       }
       const sessionSnapshot = input.sessionSnapshot || { ids: [], byId: {} }
       const state = input.state || defaultState()
+      const statusMap = input.statusMap
       const currentId = input.currentId
       const query = typeof input.query === 'string' ? input.query : ''
+      const activeOnly = state.activeOnly === true && state.mode === 'orca'
       const filter = FILTERS.includes(state.archivedFilter) ? state.archivedFilter : 'hide'
       const archived = archivedSetOf(snapshot)
       const pinnedIds = Array.isArray(snapshot.pinnedSessionIds) ? snapshot.pinnedSessionIds : []
@@ -701,9 +732,11 @@ window.__ModuleLoader__.load({
         for (const id of workspace.sessionIds || []) {
           accounted.add(id)
           const summary = summaries[id]
-          if (summary && sessionVisible(summary, archived, filter, currentId))
-            sessions.push(summary)
+          if (!summary || !sessionVisible(summary, archived, filter, currentId)) continue
+          if (activeOnly && !isActiveSession(summary, statusMap)) continue
+          sessions.push(summary)
         }
+        if (activeOnly && sessions.length === 0) continue
         const path = normalizePath(workspace.path)
         const ordered = sortSessions(sessions, state, path)
         const updatedAt =
@@ -729,6 +762,7 @@ window.__ModuleLoader__.load({
         if (!summary) continue
         if (summary.origin === 'subagent') continue
         if (!sessionVisible(summary, archived, filter, currentId)) continue
+        if (activeOnly && !isActiveSession(summary, statusMap)) continue
         loose.push(summary)
       }
       if (loose.length > 0) {
@@ -761,6 +795,7 @@ window.__ModuleLoader__.load({
         if (!summary) continue
         if (summary.origin === 'subagent') continue
         if (!sessionVisible(summary, archived, filter, currentId)) continue
+        if (activeOnly && !isActiveSession(summary, statusMap)) continue
         pinnedSessions.push({ session: summary, project: projectBySession.get(id) || null })
       }
 
@@ -905,11 +940,20 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function StatusDot({ running }) {
-      return h('span', {
-        className: cx('orca-status-dot', running && 'is-running'),
-        'aria-hidden': 'true',
-      })
+    function SessionStatusIndicator({ running, completed, pending, archived }) {
+      if (archived) {
+        return h('span', { className: 'orca-status-dot is-archived', 'aria-hidden': 'true' })
+      }
+      if (running) {
+        return h('span', { className: 'orca-spinner', 'aria-hidden': 'true' })
+      }
+      if (pending) {
+        return h('span', { className: 'orca-status-dot is-pending', 'aria-hidden': 'true' })
+      }
+      if (completed) {
+        return h('span', { className: 'orca-status-dot is-completed', 'aria-hidden': 'true' })
+      }
+      return h('span', { className: 'orca-status-dot', 'aria-hidden': 'true' })
     }
 
     function CountBadge({ children }) {
@@ -936,9 +980,18 @@ window.__ModuleLoader__.load({
         pinned,
         archived,
         current,
-        guided,
         worktree,
       } = props
+      const statusMap = React.useContext(SessionStatusContext)
+      const liveStatus =
+        statusMap && typeof statusMap.get === 'function' ? statusMap.get(session.id) : undefined
+      const running =
+        !archived &&
+        (liveStatus && liveStatus.running !== undefined
+          ? liveStatus.running === true
+          : session.running === true)
+      const completed = !archived && Boolean(liveStatus?.completionUnread)
+      const pending = !archived && Boolean(liveStatus?.pendingInteraction)
       const pinHint = Boolean(props.pinHint)
       const title = sessionLabel(session, props.currentId, t)
       const showMeta = variant === 'pinned' || variant === 'flat' || variant === 'search'
@@ -953,7 +1006,6 @@ window.__ModuleLoader__.load({
         : null
       const showPinnedHint = pinHint && pinned
       const showPinGlyph = pinned && !pinHint
-      const stacked = variant === 'pinned' || variant === 'flat' || variant === 'search'
       const worktreeBadge = worktree
         ? h(
             'span',
@@ -965,35 +1017,38 @@ window.__ModuleLoader__.load({
           )
         : null
       const pinnedHint = showPinnedHint
-        ? h('span', { className: 'orca-session-hint' }, t('pinned.short'))
+        ? h(
+            'span',
+            { className: 'orca-session-hint' },
+            h(Icon, { name: 'pinFilled', size: 9 }),
+            t('pinned.hint'),
+          )
         : null
       const archivedBadge = archived
         ? h('span', { className: 'orca-session-hint is-archived' }, t('session.archivedHint'))
         : null
-      const metaBadge =
+      const projectBadge =
         meta && !(worktree && worktree.label === meta)
-          ? h('span', { className: 'orca-session-meta', title: meta }, meta)
+          ? h(
+              'span',
+              { className: 'orca-session-project' },
+              h(Icon, { name: 'folder', size: 10, className: 'orca-session-project-icon' }),
+              h('span', { className: 'orca-session-meta', title: meta }, meta),
+            )
           : null
-      const statusDot = h(StatusDot, { running: session.running })
       const pinGlyph = showPinGlyph
         ? h(Icon, { name: 'pinFilled', size: 10, className: 'orca-session-pin' })
         : null
       const titleBadge = h('span', { className: 'orca-session-title', title }, title)
-      const inlineWorktree =
-        worktree && !worktree.main && worktree.label !== project.title ? worktreeBadge : null
 
       const main = h(
         'div',
         {
-          className: cx('orca-session-main', current && 'is-current', stacked && 'is-stacked'),
+          className: cx('orca-session-main', current && 'is-current'),
           role: 'button',
           tabIndex: 0,
           draggable: drag ? true : undefined,
-          style: {
-            paddingLeft:
-              (variant === 'project' || variant === 'tree' ? (guided ? 8 : 25) : 9) +
-              depth * (guided ? 12 : 13),
-          },
+          style: { marginLeft: variant === 'tree' ? depth * 13 : 0 },
           onClick: () => actions.open(session, variant),
           onKeyDown: (event) => {
             if (event.key === 'Enter' || event.key === ' ') {
@@ -1006,19 +1061,21 @@ window.__ModuleLoader__.load({
           onDrop: drag ? (event) => drag.drop(event, session) : undefined,
           onDragEnd: drag ? drag.end : undefined,
         },
-        stacked
-          ? [
-              h('div', { className: 'orca-session-line' }, statusDot, pinGlyph, titleBadge),
-              h(
-                'div',
-                { className: 'orca-session-subline' },
-                worktreeBadge,
-                metaBadge,
-                pinnedHint,
-                archivedBadge,
-              ),
-            ]
-          : [statusDot, pinGlyph, titleBadge, inlineWorktree, pinnedHint, archivedBadge],
+        h(
+          'div',
+          { className: 'orca-session-line' },
+          h(SessionStatusIndicator, { running, completed, pending, archived }),
+          pinGlyph,
+          titleBadge,
+        ),
+        h(
+          'div',
+          { className: 'orca-session-subline' },
+          worktreeBadge,
+          projectBadge,
+          pinnedHint,
+          archivedBadge,
+        ),
       )
 
       const hover = h(
@@ -1052,7 +1109,6 @@ window.__ModuleLoader__.load({
             pinned && pinHint && 'is-pinned-ref',
             archived && 'is-archived',
             current && 'is-current',
-            stacked && 'is-stacked',
           ),
           'data-session-id': session.id,
         },
@@ -1204,7 +1260,7 @@ window.__ModuleLoader__.load({
     }
 
     function PinnedGroup(props) {
-      const { entries, t, actions, collapsed, onToggle, currentId, archivedSet } = props
+      const { entries, t, actions, collapsed, onToggle, currentId, archivedSet, emptyHint } = props
       return h(
         'section',
         { className: cx('orca-pinned-group', collapsed && 'is-collapsed') },
@@ -1248,7 +1304,7 @@ window.__ModuleLoader__.load({
                       worktree: sessionWorktree(entry.session, entry.project),
                     }),
                   )
-                : h('div', { className: 'orca-empty-inline' }, t('pinned.empty')),
+                : h('div', { className: 'orca-empty-inline' }, emptyHint || t('pinned.empty')),
             ),
       )
     }
@@ -1266,6 +1322,7 @@ window.__ModuleLoader__.load({
         currentId,
         pinnedSet,
         archivedSet,
+        emptyHint,
       } = props
       const groupId = group ? group.id : null
       const name = group ? group.name : t('group.ungrouped')
@@ -1359,7 +1416,7 @@ window.__ModuleLoader__.load({
                       drag,
                     }),
                   )
-                : h('div', { className: 'orca-empty-inline' }, t('group.empty')),
+                : h('div', { className: 'orca-empty-inline' }, emptyHint || t('group.empty')),
             ),
       )
     }
@@ -1441,6 +1498,21 @@ window.__ModuleLoader__.load({
       } = props
       const pinnedCollapsed = isCollapsed(state, 'pinned', true)
       const hasGroups = view.groups.length > 0
+      const activeOnly = state.activeOnly === true
+      const emptyHint = activeOnly ? t('active.empty') : t('group.empty')
+      if (activeOnly && view.pinned.length === 0 && !view.hasProjects) {
+        return h(
+          'div',
+          { className: 'orca-view' },
+          h(EmptyState, {
+            icon: 'chat',
+            title: t('active.empty'),
+            hint: t('active.hint'),
+            actionLabel: t('active.showAll'),
+            onAction: () => actions.setActiveOnly(false),
+          }),
+        )
+      }
       return h(
         'div',
         { className: 'orca-view' },
@@ -1452,6 +1524,7 @@ window.__ModuleLoader__.load({
           onToggle: () => actions.toggleGroup('pinned', true),
           currentId,
           archivedSet,
+          emptyHint: activeOnly ? t('active.empty') : t('pinned.empty'),
         }),
         hasGroups
           ? [
@@ -1469,6 +1542,7 @@ window.__ModuleLoader__.load({
                   currentId,
                   pinnedSet,
                   archivedSet,
+                  emptyHint,
                   drag,
                 }),
               ),
@@ -1485,6 +1559,7 @@ window.__ModuleLoader__.load({
                 currentId,
                 pinnedSet,
                 archivedSet,
+                emptyHint,
                 drag,
               }),
             ]
@@ -1513,11 +1588,13 @@ window.__ModuleLoader__.load({
             ),
         !view.hasProjects
           ? h(EmptyState, {
-              icon: 'folder',
-              title: t('empty.projects'),
-              hint: t('empty.projectsHint'),
-              actionLabel: t('action.addProject'),
-              onAction: (event) => actions.addMenu(event, null),
+              icon: activeOnly ? 'chat' : 'folder',
+              title: activeOnly ? t('active.empty') : t('empty.projects'),
+              hint: activeOnly ? t('active.hint') : t('empty.projectsHint'),
+              actionLabel: activeOnly ? t('active.showAll') : t('action.addProject'),
+              onAction: activeOnly
+                ? () => actions.setActiveOnly(false)
+                : (event) => actions.addMenu(event, null),
             })
           : null,
       )
@@ -1922,6 +1999,7 @@ window.__ModuleLoader__.load({
         wide,
         workspaceSource,
         sessionSource,
+        sessionStatusSource,
         layoutSource,
         openSession: openSessionService,
         startSession: startSessionService,
@@ -1946,9 +2024,11 @@ window.__ModuleLoader__.load({
 
       const workspaceSnapshot = useSource(workspaceSource)
       const sessionSnapshot = useSource(sessionSource)
+      const sessionStatusSnapshot = useSource(sessionStatusSource)
       const layoutSnapshot = useSource(layoutSource)
       const workspaceState = workspaceSnapshot || EMPTY_WORKSPACES
       const sessionState = sessionSnapshot || EMPTY_SESSIONS
+      const statusMap = sessionStatusSnapshot || EMPTY_STATUS
 
       React.useEffect(() => {
         saveState(state)
@@ -1986,11 +2066,12 @@ window.__ModuleLoader__.load({
           buildView({
             workspaceSnapshot: workspaceState,
             sessionSnapshot: sessionState,
+            statusMap,
             state,
             currentId,
             query,
           }),
-        [workspaceState, sessionState, state, currentId, query],
+        [workspaceState, sessionState, statusMap, state, currentId, query],
       )
       const archivedSet = React.useMemo(() => archivedSetOf(workspaceState), [workspaceState])
       const pinnedSet = React.useMemo(
@@ -2036,6 +2117,9 @@ window.__ModuleLoader__.load({
       }
       const setFilter = (archivedFilter) => {
         setState((prev) => ({ ...prev, archivedFilter }))
+      }
+      const setActiveOnly = (activeOnly) => {
+        setState((prev) => ({ ...prev, activeOnly: Boolean(activeOnly) }))
       }
 
       const toggleGroup = (key, defaultExpanded) => {
@@ -2494,6 +2578,13 @@ window.__ModuleLoader__.load({
         if (state.mode === 'orca') {
           items.push({ divider: true })
           items.push({
+            label: t('filter.activeOnly'),
+            icon: 'dot',
+            checked: state.activeOnly === true,
+            onSelect: () => setActiveOnly(!state.activeOnly),
+          })
+          items.push({ divider: true })
+          items.push({
             label: t('action.newGroup'),
             icon: 'groupAdd',
             onSelect: () => openNewGroupDialog(),
@@ -2601,6 +2692,7 @@ window.__ModuleLoader__.load({
         addMenu: openAddMenu,
         toggleGroup,
         toggleProject,
+        setActiveOnly,
         moveProject,
         moveSession,
       }
@@ -2609,7 +2701,7 @@ window.__ModuleLoader__.load({
 
       const count = state.mode === 'orca' ? view.counts.projects : view.counts.sessions
 
-      return h(
+      const content = h(
         'div',
         { className: 'orca-root', 'data-mode': state.mode },
         h(Header, {
@@ -2691,6 +2783,8 @@ window.__ModuleLoader__.load({
           : null,
         toast ? h(ToastLayer, { toast }) : null,
       )
+
+      return h(SessionStatusContext.Provider, { value: statusMap }, content)
     }
 
     const ORCA_CSS = `
@@ -3019,60 +3113,52 @@ window.__ModuleLoader__.load({
       .orca-session {
         position: relative;
         display: flex;
-        align-items: center;
+        align-items: stretch;
         min-width: 0;
-        height: 30px;
-        border-radius: var(--dsw-radius-sm, 6px);
+        min-height: 50px;
+        margin: 2px 0;
+        border: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 2.5%, transparent);
+      }
+      .orca-session:hover {
+        border-color: color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent);
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 4.5%, transparent);
+      }
+      .orca-session.is-current {
+        border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 35%, transparent);
+        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 11%, transparent);
+        box-shadow: inset 2px 0 0 var(--dsw-alias-brand-primary);
       }
       .orca-session-main {
         display: flex;
-        align-items: center;
-        gap: 6px;
+        flex-direction: column;
+        justify-content: center;
+        gap: 3px;
         min-width: 0;
         width: 100%;
-        height: 100%;
-        padding-right: 60px;
-        border-radius: var(--dsw-radius-sm, 6px);
+        padding: 5px 8px;
+        border-radius: 7px;
         color: var(--dsw-alias-label-primary);
         font-size: 14px;
         line-height: 20px;
         cursor: pointer;
         user-select: none;
       }
-      .orca-session-main:hover {
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
-      }
-      .orca-session.is-stacked {
-        height: 46px;
-      }
-      .orca-session-main.is-stacked {
-        flex-direction: column;
-        align-items: stretch;
-        justify-content: center;
-        gap: 3px;
-        padding-top: 4px;
-        padding-bottom: 4px;
-      }
-      .orca-session-line,
-      .orca-session-subline {
+      .orca-session-line {
         display: flex;
         align-items: center;
         gap: 6px;
         min-width: 0;
+        padding-right: 52px;
       }
       .orca-session-subline {
-        padding-left: 13px;
-      }
-      .orca-session-subline .orca-session-meta {
-        max-width: 50%;
-      }
-      .orca-session-subline .orca-worktree {
-        max-width: 92px;
-      }
-      .orca-session.is-current .orca-session-main,
-      .orca-session-main.is-current {
-        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 13%, transparent);
-        box-shadow: inset 2px 0 0 var(--dsw-alias-brand-primary);
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        min-width: 0;
+        padding-left: 15px;
+        overflow: hidden;
       }
       .orca-session-title {
         flex: 1;
@@ -3081,24 +3167,42 @@ window.__ModuleLoader__.load({
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .orca-session-meta {
-        flex: none;
-        max-width: 34%;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        color: var(--dsw-alias-label-secondary);
-        font-size: 12px;
-      }
       .orca-session-pin {
         flex: none;
         color: var(--dsw-alias-brand-primary);
+      }
+      .orca-session-project {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        flex: none;
+        max-width: 46%;
+        height: 16px;
+        padding: 0 5px;
+        border: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 11%, transparent);
+        border-radius: 999px;
+        overflow: hidden;
+        color: var(--dsw-alias-label-secondary);
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 4%, transparent);
+        font-size: 10px;
+        line-height: 14px;
+      }
+      .orca-session-project-icon {
+        flex: none;
+      }
+      .orca-session-meta {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: inherit;
+        font-size: 10px;
       }
       .orca-worktree {
         display: inline-flex;
         align-items: center;
         flex: none;
-        max-width: 82px;
+        max-width: 92px;
         height: 16px;
         padding: 0 5px;
         border: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent);
@@ -3144,8 +3248,8 @@ window.__ModuleLoader__.load({
       }
       .orca-session-actions {
         position: absolute;
-        top: 2px;
-        right: 3px;
+        top: 5px;
+        right: 4px;
         display: none;
         align-items: center;
         gap: 1px;
@@ -3167,21 +3271,37 @@ window.__ModuleLoader__.load({
         visibility: hidden;
       }
       .orca-status-dot {
-        width: 7px;
-        height: 7px;
+        width: 9px;
+        height: 9px;
         border-radius: 50%;
         background: var(--dsw-alias-state-idle-primary);
         opacity: 0.5;
         flex: none;
       }
-      .orca-status-dot.is-running {
+      .orca-status-dot.is-completed {
         background: var(--dsw-alias-state-success-primary);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-state-success-primary) 16%, transparent);
         opacity: 1;
-        animation: orca-pulse 1.4s ease-in-out infinite;
       }
-      @keyframes orca-pulse {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.45; transform: scale(0.82); }
+      .orca-status-dot.is-pending {
+        background: var(--dsw-alias-state-warn-primary);
+        opacity: 1;
+      }
+      .orca-status-dot.is-archived {
+        background: var(--dsw-alias-state-idle-primary);
+        opacity: 0.35;
+      }
+      .orca-spinner {
+        width: 12px;
+        height: 12px;
+        border: 2px solid color-mix(in srgb, var(--dsw-alias-state-warn-primary) 22%, transparent);
+        border-top-color: var(--dsw-alias-state-warn-primary);
+        border-radius: 50%;
+        animation: orca-spin 0.85s linear infinite;
+        flex: none;
+      }
+      @keyframes orca-spin {
+        to { transform: rotate(360deg); }
       }
       .orca-empty-inline {
         padding: 8px 12px;
@@ -3477,7 +3597,7 @@ window.__ModuleLoader__.load({
       }
       @media (prefers-reduced-motion: reduce) {
         .orca-chevron,
-        .orca-status-dot.is-running {
+        .orca-spinner {
           transition: none;
           animation: none;
         }
@@ -3496,11 +3616,20 @@ window.__ModuleLoader__.load({
       }
     }
 
-    const inject = ['slots', 'locale', 'workspaces', 'sessions', 'uiWorkspace', 'layout']
+    const inject = [
+      'slots',
+      'locale',
+      'workspaces',
+      'sessions',
+      'uiSession',
+      'uiWorkspace',
+      'layout',
+    ]
 
     function apply(ctx) {
       const workspaces = ctx.get('workspaces')
       const sessions = ctx.get('sessions')
+      const uiSession = ctx.get('uiSession')
       const uiWorkspace = ctx.get('uiWorkspace')
       const layout = ctx.get('layout')
 
@@ -3512,6 +3641,12 @@ window.__ModuleLoader__.load({
         getSnapshot: () => sessions.list.getSnapshot(),
         subscribe: (listener) => sessions.list.subscribe(listener),
       }
+      const sessionStatusSource = uiSession?.sessionStatus
+        ? {
+            getSnapshot: () => uiSession.sessionStatus.getSnapshot(),
+            subscribe: (listener) => uiSession.sessionStatus.subscribe(listener),
+          }
+        : undefined
       const layoutSource = layout
         ? {
             getSnapshot: () => layout.panelInfo.getSnapshot(),
@@ -3531,6 +3666,7 @@ window.__ModuleLoader__.load({
             inject: () => ({
               workspaceSource,
               sessionSource,
+              sessionStatusSource,
               layoutSource,
               openSession: (sessionId) => uiWorkspace.openSession(sessionId),
               startSession: (workspaceId) => uiWorkspace.startSession(workspaceId),
@@ -3565,6 +3701,7 @@ window.__ModuleLoader__.load({
       isAncestor,
       worktreeFromPath,
       sessionWorktree,
+      isActiveSession,
       findCurrentId,
       sessionLabel,
       sortProjects,

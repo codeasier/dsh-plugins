@@ -52,6 +52,7 @@ interface State {
   mode: string
   orderBy: string
   archivedFilter: string
+  activeOnly: boolean
   groups: Group[]
   assignments: Record<string, string>
   projectOrder: Record<string, string[]>
@@ -89,6 +90,7 @@ interface Internals {
     workspaceSnapshot: WorkspaceSnapshot
     sessionSnapshot: SessionSnapshot
     state: State
+    statusMap?: ReadonlyMap<string, { running?: boolean; pendingInteraction?: unknown }>
     currentId?: string
     query?: string
   }): View
@@ -114,6 +116,10 @@ interface Internals {
   isCollapsed(state: State, key: string, defaultExpanded: boolean): boolean
   normalizePath(value: string): string
   isAncestor(parent: string, child: string): boolean
+  isActiveSession(
+    summary: Summary,
+    statusMap?: ReadonlyMap<string, { running?: boolean; pendingInteraction?: unknown }>,
+  ): boolean
   worktreeFromPath(value: string): { label: string; main: boolean }
   sessionWorktree(
     session: Pick<Summary, 'cwd'>,
@@ -255,6 +261,11 @@ function makeContext(): {
   const localeCalls: unknown[][] = []
   const { workspaceSnapshot, sessionSnapshot } = snapshots()
   const layoutSnapshot = { activePanelId: null }
+  const statusSnapshot = new Map([
+    ['s-one', { running: true, pendingInteraction: null, completionUnread: false }],
+    ['s-pinned', { running: false, pendingInteraction: {}, completionUnread: false }],
+    ['s-two', { running: false, pendingInteraction: null, completionUnread: true }],
+  ])
   const services: Record<string, unknown> = {
     workspaces: {
       list: {
@@ -269,6 +280,12 @@ function makeContext(): {
       },
     },
     uiWorkspace: {},
+    uiSession: {
+      sessionStatus: {
+        getSnapshot: () => statusSnapshot,
+        subscribe: () => () => undefined,
+      },
+    },
     layout: {
       panelInfo: {
         getSnapshot: () => layoutSnapshot,
@@ -364,11 +381,17 @@ describe('client bundle', () => {
       collapsed: {},
     }
 
+    const rendered = new Map<string, string>()
     for (const mode of ['orca', 'workspace', 'workspace-tree', 'flat']) {
       storageValue = JSON.stringify({ ...baseState, mode })
       const html = renderToString(React.createElement(component, props))
       expect(html).toContain('orca-root')
+      rendered.set(mode, html)
     }
+    const flat = rendered.get('flat') ?? ''
+    expect(flat).toContain('orca-spinner')
+    expect(flat).toContain('is-completed')
+    expect(flat).toContain('is-pending')
   })
 })
 
@@ -517,6 +540,7 @@ describe('orca view model', () => {
       version: 1,
       mode: 'workspace',
       archivedFilter: 'only',
+      activeOnly: true,
       groups: [
         { id: 'g1', name: 'Client' },
         { id: 'g1', name: 'duplicate' },
@@ -531,6 +555,7 @@ describe('orca view model', () => {
     expect(state.projectOrder.g1).toEqual(['/projects/one'])
     expect(state.sessionOrder['/projects/one']).toEqual(['s-one'])
     expect(state.collapsed['p:/projects/one']).toBe(true)
+    expect(state.activeOnly).toBe(true)
   })
 
   it('labels the main directory and named worktrees', () => {
@@ -554,6 +579,42 @@ describe('orca view model', () => {
       internals.sessionWorktree({ cwd: '/projects/one/.worktrees/feature-a/src' }, project),
     ).toEqual({ label: 'feature-a', main: false })
     expect(internals.sessionWorktree({ cwd: '/projects/one' }, null)).toBeNull()
+  })
+
+  it('filters to active sessions in Orca mode', () => {
+    const client = loadClient()
+    const internals = client.__internals
+    const { workspaceSnapshot, sessionSnapshot } = snapshots()
+    const statusMap = new Map([
+      ['s-one', { running: true }],
+      ['s-pinned', { running: false }],
+      ['s-two', { running: false }],
+      ['s-loose', { running: true }],
+    ])
+    const state = { ...internals.defaultState(), activeOnly: true, mode: 'orca' }
+    const view = internals.buildView({
+      workspaceSnapshot,
+      sessionSnapshot,
+      statusMap,
+      state,
+    })
+
+    expect(view.projects.map((entry) => entry.key)).toEqual(['/projects/one', '__ungrouped__'])
+    expect(project(view, '/projects/one').sessions.map((entry) => entry.id)).toEqual(['s-one'])
+    expect(view.pinned).toEqual([])
+    expect(view.counts).toEqual({ projects: 1, sessions: 2, pinned: 0 })
+  })
+
+  it('treats a pending interaction as active even when the session is not running', () => {
+    const client = loadClient()
+    const internals = client.__internals
+    const source = snapshots().sessionSnapshot.byId['s-two']
+    if (source === undefined) throw new Error('s-two summary missing')
+    const summary = { ...source, running: false }
+    const statusMap = new Map([
+      ['s-two', { running: false, pendingInteraction: { kind: 'approval' } }],
+    ])
+    expect(internals.isActiveSession(summary, statusMap)).toBe(true)
   })
 
   it('explains ancestor paths without treating a sibling prefix as a child', () => {
