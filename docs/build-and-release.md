@@ -161,16 +161,23 @@ the exception where `0.1.0` is missing by definition.
 That is how independent versions work in practice: a release can publish one
 plugin, several plugins, or none, without a global repository version.
 
-### Credentials
+### Credentials and auth modes
 
-The workflow passes `secrets.NPM_TOKEN` to the runner as `NODE_AUTH_TOKEN`;
-`setup-node` writes the npm auth line. When neither a token nor the
-trusted-publishing switch is present, `pnpm release:ci` exits successfully
-without publishing, so forks and first pushes stay green.
+The workflow supports two npm auth modes:
+
+| `RELEASE_PUBLISH` | Run | Credential |
+|---|---|---|
+| unset or not `true` | push or dispatch | `NPM_TOKEN` secret |
+| `true` | push or dispatch | OIDC trusted publishing |
+| any | dispatch with `-f bootstrap=true` | `NPM_TOKEN` secret |
+
+`NPM_TOKEN` is not removed when OIDC is enabled. It stays as the bootstrap
+credential for a **new package's first publish**, because npm trusted publishing
+can only be configured after the package exists.
 
 A token-based publish through pnpm does **not** attach a provenance attestation.
-Configure trusted publishing (OIDC) below when you need one; the workflow
-already exposes `id-token: write` for it.
+The OIDC path does. See [Configure trusted publishing](#configure-trusted-publishing)
+for the per-package setup.
 
 Create a granular access token:
 
@@ -208,11 +215,16 @@ initial `hello@0.1.0` and `kit@0.1.0` were published this way.
 
 ```sh
 pnpm release:status   # the new package: "would publish"
-gh workflow run release.yml --repo codeasier/dsh-plugins
+gh workflow run release.yml -f bootstrap=true --repo codeasier/dsh-plugins
 gh run watch
 npm view @codeasier/dsh-plugin-hello version
 gh release list
 ```
+
+`-f bootstrap=true` forces the token path. It is required when
+`RELEASE_PUBLISH=true` is already set, and harmless before that. After the first
+publish, configure the new package's trusted publisher so later releases use
+OIDC.
 
 For a new package, confirm `publishConfig.access` is `public`, `files` includes
 every runtime asset, and the npm scope exists. Do not add a changeset just to
@@ -229,27 +241,60 @@ pnpm release:dry   # build, then list which package versions are missing on npm
 pnpm release:status
 ```
 
-### Trusted publishing (optional)
+### Configure trusted publishing
 
-After a package exists on npm, it can use OIDC instead of a long-lived token:
+<a id="configure-trusted-publishing"></a>
 
-1. On npmjs.com, open the package → **Settings** → **Trusted publishing** →
-   GitHub Actions. Set repository `codeasier/dsh-plugins`, workflow
-   `release.yml`, and leave the environment empty. Repeat for each package.
-2. Remove the `NODE_AUTH_TOKEN` line from `release.yml`.
-3. Set the repository variable that enables publishing without a token:
+Trusted publishing is configured **per package**, not per scope, and npm only
+allows it for a package that already exists. You do not need to know future
+packages in advance: configure each one after its first publish.
 
-   ```sh
-   gh variable set RELEASE_PUBLISH --body true --repo codeasier/dsh-plugins
-   ```
+For every package that should publish through OIDC, run the equivalent of:
 
-4. Keep `id-token: write`. On this path pnpm authenticates through OIDC and
-   attaches a provenance attestation.
+```sh
+npx npm@12.2.2 trust github @codeasier/dsh-plugin-hello \
+  --file release.yml \
+  --repo codeasier/dsh-plugins \
+  --allow-publish
 
-The first publish of a **new** package still needs a token, because npm trusted
-publishing can only be configured for a package that already exists. Add the
-token back temporarily, or publish the package once manually and then configure
-its trusted publisher.
+npx npm@12.2.2 trust github @codeasier/dsh-plugin-kit \
+  --file release.yml \
+  --repo codeasier/dsh-plugins \
+  --allow-publish
+```
+
+This operation requires a one-time password / 2FA. npm prints an authentication
+URL; complete it in your browser. Run it in a normal terminal, not from an
+unattended agent session. The npm website equivalent is package **Settings** →
+**Trusted publishing** → GitHub Actions with repository
+`codeasier/dsh-plugins`, workflow `release.yml`, and an empty environment.
+
+Verify and enable OIDC:
+
+```sh
+npx npm@12.2.2 trust list @codeasier/dsh-plugin-hello
+gh variable set RELEASE_PUBLISH --body true --repo codeasier/dsh-plugins
+```
+
+Once every package that might publish has a trusted publisher, normal releases
+use OIDC and attach provenance. Until then, the token path keeps working.
+
+For a **new** package after OIDC is enabled:
+
+1. merge its Version Packages PR;
+2. publish its first version with the bootstrap path:
+   `gh workflow run release.yml -f bootstrap=true`;
+3. run the `npm trust github <package> ...` command for it;
+4. later releases use OIDC automatically.
+
+In OIDC mode, `pnpm release:ci` first checks whether a package that is about to
+publish exists on npm at all. If it does not, the run stops with these
+instructions instead of attempting an OIDC publish that cannot succeed.
+
+To temporarily force the token path again, dispatch with `-f bootstrap=true`.
+To disable publishing entirely, remove the `RELEASE_PUBLISH` variable and the
+`NPM_TOKEN` secret; `pnpm release:ci` then exits successfully without
+publishing.
 
 ## Release workflow
 
@@ -262,6 +307,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      bootstrap:
+        description: "Use NPM_TOKEN for this run (new package or temporary fallback)"
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -296,7 +346,8 @@ jobs:
           createGithubReleases: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ (inputs.bootstrap == true || vars.RELEASE_PUBLISH != 'true') && secrets.NPM_TOKEN || '' }}
+          RELEASE_BOOTSTRAP: ${{ inputs.bootstrap }}
           RELEASE_PUBLISH: ${{ vars.RELEASE_PUBLISH }}
 ```
 
@@ -314,10 +365,12 @@ Setup notes:
 - Branch protection must allow the action's bot to push the version commit and
   tags, or use the default branch without required reviews for that bot. See
   [Maintainer runbook](maintainers.md#branch-protection).
-- Trusted publishing (OIDC) can replace the token after the packages exist:
-  configure each package's trusted publisher, remove `NODE_AUTH_TOKEN`, set the
-  repository variable `RELEASE_PUBLISH=true`, and keep `id-token: write`. If the
-  token is present it takes precedence. Test with a patch release first.
+- Trusted publishing (OIDC) is opt-in per run through the
+  `RELEASE_PUBLISH=true` repository variable. Configure each package's trusted
+  publisher first; see [Configure trusted publishing](#configure-trusted-publishing).
+  The `NODE_AUTH_TOKEN` expression keeps the token path until that variable is
+  set, and the `bootstrap` dispatch input forces it for a new package's first
+  publish.
 
 ## Manual release
 
