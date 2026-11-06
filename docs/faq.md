@@ -32,9 +32,8 @@ without changing the individual packages, but it is not part of this design.
 
 Avoid it. Bundle order would become an install constraint, and disabling one
 plugin could break another. Put shared helpers in
-[`@codeasier/dsh-plugin-kit`](https://www.npmjs.com/package/@codeasier/dsh-plugin-kit),
-which is compiled into each plugin, or in a plain library both plugins depend
-on.
+the [shared kit](../packages/plugin-kit/README.md), which is compiled into each
+plugin, or a plain library both plugins depend on.
 
 ## Can a plugin use React or an npm library in the browser?
 
