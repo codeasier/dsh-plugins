@@ -57,7 +57,8 @@ When a Version Packages PR appears:
 4. Merge the PR.
 5. Watch the `Release` workflow; it publishes changed packages, creates tags, and
    creates one GitHub Release per published package.
-6. Verify on npm: versions, provenance badge, and file list.
+6. Verify on npm: versions, file list, and a provenance badge when OIDC is
+   configured.
 7. Smoke-test one install in a clean profile.
 
 If the workflow fails after a partial publish, do not re-run blindly. Inspect
@@ -67,14 +68,12 @@ Fix the cause, then re-run.
 ## First release of a package
 
 A new package starts at `0.1.0` with no changeset. Once it is on `main`, the next
-release run publishes it. After the first successful publish:
+release run publishes it. After a package's first publish:
 
-- remove the "Status: initial scaffold" blockquote from `README.md` and
-  `README.zh.md`;
-- restore the npm version badge for the first plugin;
-- verify the install commands in the README, `docs/install/dsh.md`, and
-  `docs/install/desktop.md` against the published package;
-- confirm the npm provenance badge and the package's file list.
+- verify its npm page, repository link, and published file list;
+- install the registry version into a clean profile and exercise the capability;
+- check the README install commands and compatibility table;
+- add it to the catalog with `pnpm sync:registry` if it is new.
 
 If the workflow refuses, check that:
 

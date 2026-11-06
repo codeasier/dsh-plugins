@@ -164,10 +164,13 @@ plugin, several plugins, or none, without a global repository version.
 ### Credentials
 
 The workflow passes `secrets.NPM_TOKEN` to the runner as `NODE_AUTH_TOKEN`;
-`setup-node` writes the npm auth line, and `NPM_CONFIG_PROVENANCE=true` requests
-a signed provenance attestation. When neither a token nor the trusted-publishing
-switch is present, `pnpm release:ci` exits successfully without publishing, so
-forks and first pushes stay green.
+`setup-node` writes the npm auth line. When neither a token nor the
+trusted-publishing switch is present, `pnpm release:ci` exits successfully
+without publishing, so forks and first pushes stay green.
+
+A token-based publish through pnpm does **not** attach a provenance attestation.
+Configure trusted publishing (OIDC) below when you need one; the workflow
+already exposes `id-token: write` for it.
 
 Create a granular access token:
 
@@ -199,19 +202,21 @@ the registry.
 
 ### First publish
 
-The packages are at `0.1.0` and no version exists on npm yet, so no changeset is
-needed for the initial publish.
+A new package starts at `0.1.0` and has no changeset. The next release run
+publishes it because that version is not on the registry. This repository's
+initial `hello@0.1.0` and `kit@0.1.0` were published this way.
 
 ```sh
-pnpm release:status   # both packages: "would publish"
+pnpm release:status   # the new package: "would publish"
 gh workflow run release.yml --repo codeasier/dsh-plugins
 gh run watch
 npm view @codeasier/dsh-plugin-hello version
 gh release list
 ```
 
-After both packages exist, follow the cleanup checklist in the
-[maintainer runbook](maintainers.md#first-release-of-a-package).
+For a new package, confirm `publishConfig.access` is `public`, `files` includes
+every runtime asset, and the npm scope exists. Do not add a changeset just to
+produce `0.1.0`.
 
 ### Later releases
 
@@ -238,7 +243,8 @@ After a package exists on npm, it can use OIDC instead of a long-lived token:
    gh variable set RELEASE_PUBLISH --body true --repo codeasier/dsh-plugins
    ```
 
-4. Keep `id-token: write`; provenance continues to work.
+4. Keep `id-token: write`. On this path pnpm authenticates through OIDC and
+   attaches a provenance attestation.
 
 The first publish of a **new** package still needs a token, because npm trusted
 publishing can only be configured for a package that already exists. Add the
@@ -292,7 +298,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           RELEASE_PUBLISH: ${{ vars.RELEASE_PUBLISH }}
-          NPM_CONFIG_PROVENANCE: 'true'
 ```
 
 Setup notes:
@@ -301,9 +306,8 @@ Setup notes:
   `pnpm release:ci` skips publishing when neither a token nor
   `RELEASE_PUBLISH=true` is present, so a fork or a first push cannot fail the
   workflow.
-- `setup-node` writes the npm auth line; `NPM_CONFIG_PROVENANCE=true` asks npm
-  for a signed provenance attestation. Provenance needs a public repository and
-  a workflow run from GitHub.
+- `setup-node` writes the npm auth line. Provenance requires trusted publishing
+  (OIDC); the token-based path above does not attach an attestation.
 - Repository setting **Actions → General → Allow GitHub Actions to create and
   approve pull requests** must be enabled, or the Version Packages PR cannot be
   opened.
@@ -351,6 +355,6 @@ deprecation plus a fixed release.
 - [ ] `engines.dsh` ranges still reflect tested DSH versions.
 - [ ] New packages have locale, icon, README, LICENSE, and `files` entries.
 - [ ] `pnpm pack:check` passed in CI.
-- [ ] After publish: npm shows the new versions, provenance badges appear, and
-      GitHub Releases exist per package.
+- [ ] After publish: npm shows the new versions, GitHub Releases exist per
+      package, and a provenance badge appears when OIDC is configured.
 - [ ] Smoke-test one install from the registry into a clean profile or Desktop.

@@ -4,6 +4,8 @@
 维护的社区插件集 —— **每个插件一个独立版本、独立发布的 npm 包**。
 
 [![CI](https://github.com/codeasier/dsh-plugins/actions/workflows/ci.yml/badge.svg)](https://github.com/codeasier/dsh-plugins/actions/workflows/ci.yml)
+[![npm hello](https://img.shields.io/npm/v/@codeasier/dsh-plugin-hello?label=hello)](https://www.npmjs.com/package/@codeasier/dsh-plugin-hello)
+[![npm kit](https://img.shields.io/npm/v/@codeasier/dsh-plugin-kit?label=kit)](https://www.npmjs.com/package/@codeasier/dsh-plugin-kit)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D22.18-339933.svg)](package.json)
 
@@ -11,10 +13,6 @@
 
 > 本项目与 DeepSeek 官方无关。`dsh` / DeepSeek Harness 是平台，本仓库提供
 > 社区扩展。
->
-> **当前状态：初始脚手架。** 参考插件尚未发布到 npm；首次发布前请从本地
-> checkout 用 `pnpm install:local` 安装，见
-> [快速开始 § 在 DSH 中运行](docs/getting-started.md#run-your-plugin-in-dsh)。
 
 ## 为什么这样组织
 

@@ -25,8 +25,10 @@ plugin the way you would review a native dependency, not a stylesheet.
   built from tagged commits.
 - **Reviewed releases.** Changes reach npm through a Version Packages pull
   request and a release workflow, not from a laptop.
-- **Provenance.** The release workflow publishes with npm provenance, so npm
-  shows which repository, commit, and workflow produced a tarball.
+- **Provenance when configured.** The workflow exposes the OIDC permission that
+  npm trusted publishing needs. A long-lived-token publish through pnpm does not
+  attach a provenance attestation, so check the package page rather than assuming
+  a badge; configure trusted publishing to produce one.
 - **No install scripts.** pnpm 11 blocks dependency lifecycle scripts, and this
   repository does not ask users to approve any. A plugin that needs one must
   justify it in review.
@@ -42,7 +44,8 @@ plugin the way you would review a native dependency, not a stylesheet.
 
 1. Install a specific version (`@codeasier/dsh-plugin-x@0.1.0`) rather than a
    loose range when stability matters.
-2. Check npm's provenance badge and the linked commit.
+2. Check the npm page's repository link, publish time, and any provenance
+   badge.
 3. Review the package's `cordis.patch.yml` and what it inserts. A bundle can add
    rows beyond its own plugin.
 4. Read the plugin's README for its network and file access.

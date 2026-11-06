@@ -8,8 +8,7 @@ owner.
 ## Option A: the Plugins page
 
 1. Open DeepSeek Harness Desktop.
-2. Open **Plugins** in the sidebar. (Before the first release, install a local
-   tarball instead; the registry name does not resolve yet.)
+2. Open **Plugins** in the sidebar.
 3. Search for `@codeasier/dsh-plugin-hello` and install it, or point the
    installer at a local tarball.
 4. Confirm the bundle is enabled.
@@ -94,5 +93,5 @@ Read the diagnostic in the Plugins page. Common causes are a missing
 
 The Desktop profile runs plugins in the app's process with the user's
 permissions. Installing a plugin is executing third-party code, with or without
-a UI. Prefer reviewed releases from this repository, check the npm provenance
-badge, and read [Security](../security.md).
+a UI. Prefer reviewed releases from this repository, check the npm page and any
+provenance badge it shows, and read [Security](../security.md).

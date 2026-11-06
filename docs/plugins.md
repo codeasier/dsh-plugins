@@ -11,9 +11,6 @@ has its own version, changelog, compatibility range, and release.
 
 ## Install
 
-The packages below are not on npm until the first release. Until then, install a
-packed tarball from a checkout; after the first release, use the command below.
-
 ```sh
 dsh plugin --profile web add <package>
 ```

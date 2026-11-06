@@ -16,10 +16,6 @@ first use.
 
 ## Install
 
-> Before the first release, the packages are not on npm. Install a packed tarball
-> with `pnpm install:local` (see [From a tarball](#from-a-tarball)); the registry
-> commands on this page apply once a version is published.
-
 ```sh
 dsh plugin --profile web add @codeasier/dsh-plugin-hello
 ```
