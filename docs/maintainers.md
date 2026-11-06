@@ -13,6 +13,7 @@ Operational tasks that keep the repository and the npm organization healthy.
 | Issues | issue forms enabled; blank issues disabled |
 | Private vulnerability reporting | enabled |
 | Dependabot alerts and security updates | enabled |
+| Dependabot version updates | npm disabled (`open-pull-requests-limit: 0`); grouped Actions updates monthly |
 | Actions → General | **Allow GitHub Actions to create and approve pull requests** enabled |
 | Default branch | `main` |
 

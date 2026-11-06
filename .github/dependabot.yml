@@ -1,32 +1,24 @@
 version: 2
 
 updates:
+  # The npm toolchain is pinned on purpose: a plugin release must stay
+  # reproducible, and each major upgrade (TypeScript, Changesets, Vitest) needs
+  # its own migration. Security alerts and security updates are enabled in the
+  # repository settings; this limit disables routine version-update PRs.
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
-      day: monday
-      time: "03:00"
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 0
     labels:
       - dependencies
-    groups:
-      dev-dependencies:
-        dependency-type: development
-        update-types:
-          - minor
-          - patch
-      production-dependencies:
-        dependency-type: production
-        update-types:
-          - patch
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
       day: monday
-      time: "03:30"
+    open-pull-requests-limit: 2
     labels:
       - dependencies
       - ci
@@ -34,3 +26,7 @@ updates:
       actions:
         patterns:
           - "*"
+    ignore:
+      # v2 requires Changesets v3 and renamed inputs; this repository stays on
+      # changesets/action v1.9.0 with @changesets/cli v2 until that migration.
+      - dependency-name: changesets/action

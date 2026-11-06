@@ -68,8 +68,9 @@ plugin the way you would review a native dependency, not a stylesheet.
   rotate them after a maintainer leaves.
 - Prefer npm trusted publishing once configured; it removes the long-lived token
   from CI.
-- Dependabot proposes dependency and Actions updates. Review them; do not
-  auto-merge a runtime dependency.
+- Dependabot alerts and security updates are enabled. Routine npm version
+  updates are deliberate rather than automated, so a toolchain change lands in
+  its own reviewed pull request; grouped Actions updates arrive monthly.
 - The lockfile is committed. CI installs with `--frozen-lockfile`.
 
 ## Supported versions
