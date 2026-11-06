@@ -114,6 +114,11 @@ interface Internals {
   isCollapsed(state: State, key: string, defaultExpanded: boolean): boolean
   normalizePath(value: string): string
   isAncestor(parent: string, child: string): boolean
+  worktreeFromPath(value: string): { label: string; main: boolean }
+  sessionWorktree(
+    session: Pick<Summary, 'cwd'>,
+    project: Pick<ProjectView, 'path'> | null,
+  ): { label: string; main: boolean } | null
 }
 
 interface ClientModule {
@@ -526,6 +531,29 @@ describe('orca view model', () => {
     expect(state.projectOrder.g1).toEqual(['/projects/one'])
     expect(state.sessionOrder['/projects/one']).toEqual(['s-one'])
     expect(state.collapsed['p:/projects/one']).toBe(true)
+  })
+
+  it('labels the main directory and named worktrees', () => {
+    const client = loadClient()
+    const internals = client.__internals
+    expect(internals.worktreeFromPath('/projects/one')).toEqual({ label: 'main', main: true })
+    expect(internals.worktreeFromPath('/projects/one/.worktrees/feature-a')).toEqual({
+      label: 'feature-a',
+      main: false,
+    })
+    expect(internals.worktreeFromPath('/Users/test1/orca/workspaces/msinsight/2.0-review')).toEqual(
+      { label: '2.0-review', main: false },
+    )
+
+    const project = { path: '/projects/one' }
+    expect(internals.sessionWorktree({ cwd: '/projects/one' }, project)).toEqual({
+      label: 'main',
+      main: true,
+    })
+    expect(
+      internals.sessionWorktree({ cwd: '/projects/one/.worktrees/feature-a/src' }, project),
+    ).toEqual({ label: 'feature-a', main: false })
+    expect(internals.sessionWorktree({ cwd: '/projects/one' }, null)).toBeNull()
   })
 
   it('explains ancestor paths without treating a sibling prefix as a child', () => {

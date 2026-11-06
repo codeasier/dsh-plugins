@@ -21,8 +21,15 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   workspaces), not directory levels. Each project row expands to its sessions.
 - **Pinned shelf.** Pin a session from its hover pin button or its `...` menu.
   It moves into the **已置顶** group at the very top. Under its project the same
-  session stays in place, grayed, with an **已置顶** badge. Unpin it and it is an
+  session stays in place, grayed, with a **置顶** badge. Opening a pinned session
+  does not expand its project; use the pinned row's `...` menu → **在项目中显示**
+  to expand the project and scroll to the original row. Unpin it and it is an
   ordinary project session again.
+- **Worktree labels.** Every session carries `main` for the workspace root or
+  the named worktree derived from its working directory, such as
+  `.worktrees/feature-a` or Orca's `workspaces/<project>/2.0-review`.
+  Cross-project, pinned, and flat rows always show the label; project rows show
+  named worktrees and omit the implicit `main`.
 - **Custom groups.** Use a project's `...` menu → **移动到分组** to create a group
   or move the project into one. You can also drag a project onto a group. Group
   headers can be renamed, deleted, and used to add projects; deleting a group
@@ -113,7 +120,11 @@ client at DSH 0.2.2-rc.1; see [Verification](#verification).
   view-options menu; project expansion; pin → shelf and gray project row; unpin
   → restored row; create/rename/delete group; move project by menu and by drag;
   reload persistence; search; archive/unarchive; flat, workspace, and tree modes;
-  light and dark themes; sidebar collapse/expand.
+  light and dark themes; sidebar collapse/expand. Also checked: a pinned row
+  opens without expanding its project, **在项目中显示** expands and scrolls to
+  the original row, worktree badges resolve to `main`, `v0.16.1-patch`, and
+  `2.0-review`, and the type scale matches the shipped sidebar's 14px project
+  and session titles.
 - The Desktop window was not driven separately in this checkout; it uses the
   same client artifact. Installing into the Electron-owned `desktop` profile is
   a separate user action.
@@ -126,6 +137,10 @@ client at DSH 0.2.2-rc.1; see [Verification](#verification).
 - Search is local to the loaded session summaries (title, project path, and
   working directory). It does not query message content on the Host.
 - Custom groups are browser-local and do not sync across devices or profiles.
+- Worktree labels are path-derived; the plugin does not inspect git metadata. A
+  workspace path without a recognized worktree marker (`.worktrees/`,
+  `.worktree/`, `worktrees/`, or Orca's `workspaces/<project>/<worktree>`) is
+  labeled `main`.
 - Adding a project requires a working `ctx.uiWorkspace.pickDirectory()`. A
   remote browser without the host directory picker cannot add projects.
 - This version does not offer session rename, fork, or delete; use the
