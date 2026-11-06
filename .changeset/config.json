@@ -7,5 +7,5 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": []
+  "ignore": ["@codeasier/dsh-plugin-hello", "@codeasier/dsh-plugin-kit"]
 }

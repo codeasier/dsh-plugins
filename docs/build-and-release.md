@@ -84,10 +84,14 @@ A package that fails this check cannot be released.
 - While DSH is pre-1.0, keep `engines.dsh` to the tested minor line
   (`>=0.2.1-rc.2 <0.3.0`). Widening it requires a release that names the newly
   tested DSH version.
-- A change to `plugin-kit` gets its own changeset. Because the kit is compiled
-  into each plugin, every plugin that should ship the change also needs its own
-  changeset and release; Changesets cannot bump a dependency edge that does not
-  exist.
+- A change to `plugin-kit` gets its own changeset only when the kit itself is
+  meant to be released. Because it is compiled into each plugin, every plugin
+  that should ship the change also needs its own changeset and release;
+  Changesets cannot bump a dependency edge that does not exist.
+- `@codeasier/dsh-plugin-hello` and `@codeasier/dsh-plugin-kit` are reference
+  packages listed in `.changeset/config.json` `ignore`. They stay at `0.1.0`:
+  hello is the install/smoke-test example, and the kit is inlined into plugins.
+  Remove an entry only when that package becomes a maintained release.
 - Never edit a released version or a released changelog by hand.
 
 ## Changesets workflow

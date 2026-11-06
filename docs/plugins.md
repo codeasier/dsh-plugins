@@ -36,5 +36,10 @@ table by hand; run `pnpm sync:registry`.
 | Shared library | `@codeasier/dsh-plugin-kit` | Compiled into plugins; never installed as a bundle. |
 
 The shared library does not appear in the catalog above because it adds no
-capability on its own; tsdown inlines it into every plugin that imports it. Its API is documented in its
-[README](../packages/plugin-kit/README.md).
+capability on its own; tsdown inlines it into every plugin that imports it. Its
+API is documented in its [README](../packages/plugin-kit/README.md).
+
+`hello` and `kit` are reference packages. They are published once at `0.1.0` to
+validate the release pipeline and are listed in `.changeset/config.json`
+`ignore`, so they do not receive future versions. Add a real plugin beside them
+when one exists.

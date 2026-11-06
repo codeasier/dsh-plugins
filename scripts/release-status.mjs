@@ -8,14 +8,21 @@
  */
 
 import { execFileSync } from 'node:child_process'
+import { join } from 'node:path'
 
-import { readPackages } from './lib/workspace.mjs'
+import { ROOT, readJson, readPackages } from './lib/workspace.mjs'
 
 const packages = readPackages()
+const ignored = new Set(readJson(join(ROOT, '.changeset', 'config.json')).ignore ?? [])
 const rows = []
 let failed = false
 
 for (const pkg of packages) {
+  if (ignored.has(pkg.name)) {
+    rows.push({ pkg, ignored: true })
+    continue
+  }
+
   let published = false
   let problem
   try {
@@ -35,8 +42,10 @@ for (const pkg of packages) {
   rows.push({ pkg, published, problem })
 }
 
-for (const { pkg, published, problem } of rows) {
-  if (problem !== undefined) {
+for (const { pkg, published, problem, ignored: isIgnored } of rows) {
+  if (isIgnored === true) {
+    console.log(`${pkg.name}@${pkg.version}  ignored by Changesets (reference package)`)
+  } else if (problem !== undefined) {
     console.log(`${pkg.name}@${pkg.version}  ERROR  ${problem.split('\n')[0]}`)
   } else if (published) {
     console.log(`${pkg.name}@${pkg.version}  already on npm, skipped`)
