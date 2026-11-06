@@ -74,6 +74,8 @@ window.__ModuleLoader__.load({
         'status.auto': 'Switched to automatic selection.',
         'status.switched': 'Switched to {id}; applies on the next call.',
         'status.switchRejected': 'The switch was rejected; reload and retry.',
+        'status.failed': 'The write failed; your draft is kept. Please retry.',
+        'status.jsonInvalid': 'Fix or discard invalid Other fields JSON before saving.',
         'error.jsonObject': 'must be a JSON object',
         'vendor.url': 'Custom URL',
         'vendor.httpJson': 'http-json (manual field mapping)',
@@ -161,6 +163,8 @@ window.__ModuleLoader__.load({
         'status.auto': '已改为自动选择。',
         'status.switched': '已切换到 {id}，下一次调用生效。',
         'status.switchRejected': '切换被拒绝，请刷新后重试。',
+        'status.failed': '写入失败，草稿已保留，请重试。',
+        'status.jsonInvalid': '请先修正或撤销其他字段中的无效 JSON，再保存。',
         'error.jsonObject': '必须是一个 JSON 对象',
         'vendor.url': '自定义 URL',
         'vendor.httpJson': 'http-json（手动映射字段）',
@@ -645,8 +649,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
      * that silently shadow each other. Switching the type keeps whatever is
      * already typed, so a mistake costs a switch rather than a retype.
      */
-    function KeyField({ provider, onChange }) {
-      const type = keyTypeOf(provider)
+    function KeyField({ provider, type, onTypeChange, onChange }) {
       const value = provider[type] ?? ''
       const both = (provider.apiKey ?? '') !== '' && (provider.apiKeyEnv ?? '') !== ''
 
@@ -675,7 +678,10 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
               { value: 'apiKey', label: t('label.key') },
               { value: 'apiKeyEnv', label: t('label.credentialName') },
             ],
-            onChange: (next) => onChange(setKey(provider, next, value)),
+            onChange: (next) => {
+              onTypeChange(next)
+              onChange(setKey(provider, next, value))
+            },
           }),
           h(
             'div',
@@ -690,7 +696,10 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                   value,
                   placeholder: 'MY_SEARCH_KEY',
                   mono: true,
-                  onChange: (next) => onChange(setKey(provider, 'apiKeyEnv', next)),
+                  onChange: (next) => {
+                    onTypeChange(type)
+                    onChange(setKey(provider, type, next))
+                  },
                 }),
           ),
         ),
@@ -899,6 +908,11 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
       isActive,
       open,
       busy,
+      invalid,
+      jsonDraft,
+      onJsonChange,
+      keyType,
+      onKeyTypeChange,
       onToggle,
       onClose,
       onChange,
@@ -906,22 +920,15 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
       onSave,
       onCancel,
     }) {
-      const [json, setJson] = React.useState(() => unknownOf(provider))
-      const [jsonError, setJsonError] = React.useState('')
+      const json = jsonDraft?.text ?? unknownOf(provider)
+      const jsonError = jsonDraft?.error ?? ''
       const [jsonOpen, setJsonOpen] = React.useState(false)
 
-      React.useEffect(() => {
-        if (!open) return
-        setJson(unknownOf(provider))
-        setJsonError('')
-      }, [open])
-
       const commitJson = (text) => {
-        setJson(text)
         const kept = {}
         for (const [key, value] of Object.entries(provider)) if (KNOWN.has(key)) kept[key] = value
         if (text.trim() === '') {
-          setJsonError('')
+          onJsonChange({ text, error: '' })
           onChange(kept)
           return
         }
@@ -929,10 +936,10 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
           const parsed = JSON.parse(text)
           if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
             throw new Error(t('error.jsonObject'))
-          setJsonError('')
+          onJsonChange({ text, error: '' })
           onChange({ ...kept, ...parsed })
         } catch (error) {
-          setJsonError(String(error?.message ?? error))
+          onJsonChange({ text, error: String(error?.message ?? error) })
         }
       }
 
@@ -1071,7 +1078,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                         onChange: (value) => onChange(put(provider, 'baseURL', value)),
                       }),
                     ),
-                h(KeyField, { provider, onChange }),
+                h(KeyField, { provider, type: keyType, onTypeChange: onKeyTypeChange, onChange }),
                 h(
                   Field,
                   { label: t('label.results'), field: 'maxResults' },
@@ -1147,7 +1154,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                   {
                     type: 'button',
                     className: 'dsh-wp-btn dsh-wp-primary',
-                    disabled: busy,
+                    disabled: busy || invalid,
                     onClick: onSave,
                   },
                   busy ? t('action.saving') : t('action.save'),
@@ -1182,6 +1189,14 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
       return value
     }
 
+    const same = (left, right) => JSON.stringify(stable(left)) === JSON.stringify(stable(right))
+    const invalidJson = (entry) => Object.values(entry.json).some((edit) => edit.error !== '')
+    const isDirty = (entry) => !same(entry.value, entry.base) || invalidJson(entry)
+    const draftOf = (value, revision) => {
+      const base = normalize(value)
+      return { value: base, base, revision, json: {}, keyTypes: {} }
+    }
+
     /** What the host will really use: the named entry, else the only entry. */
     const effectiveActive = (value) => {
       const providers = value.providers
@@ -1205,9 +1220,17 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
       const [notice, setNotice] = React.useState(null)
 
       React.useEffect(() => {
-        if (!ready || draft !== null) return
-        setDraft({ search: normalize(saved.search), fetch: normalize(saved.fetch) })
-      }, [ready, draft, saved])
+        if (!ready) return
+        setDraft((current) => {
+          let next = current
+          for (const { key } of KINDS) {
+            const entry = current?.[key]
+            if (entry && (isDirty(entry) || entry.revision === snapshot.revision)) continue
+            next = { ...next, [key]: draftOf(saved[key], snapshot.revision) }
+          }
+          return next
+        })
+      }, [ready, saved, snapshot.revision])
 
       if (snapshot.status === 'unavailable') {
         return h(
@@ -1228,71 +1251,119 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
         )
       }
 
-      const restore = (kindKey) =>
-        setDraft((current) => ({ ...current, [kindKey]: normalize(saved[kindKey]) }))
+      const changeDraft = (kindKey, update) =>
+        setDraft((current) => ({ ...current, [kindKey]: update(current[kindKey]) }))
+
+      const restore = (kindKey) => {
+        changeDraft(kindKey, () => draftOf(saved[kindKey], snapshot.revision))
+        setNotice(null)
+      }
 
       const save = async (kindKey) => {
+        const entry = draft[kindKey]
+        if (busy === kindKey || invalidJson(entry)) return
         setBusy(kindKey)
-        const ok = await form.set(kindKey, draft[kindKey])
-        setBusy('')
-        setNotice(
-          ok
-            ? { kind: kindKey, tone: 'ok', text: t('status.saved') }
-            : { kind: kindKey, tone: 'error', text: t('status.rejected') },
-        )
-        if (ok) setOpenRow('')
+        try {
+          const ok = await form.mutate(
+            [{ op: 'set', path: [kindKey], value: entry.value }],
+            entry.revision,
+          )
+          setNotice(
+            ok
+              ? { kind: kindKey, tone: 'ok', text: t('status.saved') }
+              : { kind: kindKey, tone: 'error', text: t('status.rejected') },
+          )
+          if (ok) {
+            const latest = form.getSnapshot()
+            changeDraft(kindKey, (current) => {
+              const accepted = draftOf(latest.value?.[kindKey], latest.revision)
+              return current === entry
+                ? accepted
+                : same(accepted.value, entry.value)
+                  ? { ...current, base: accepted.base, revision: accepted.revision }
+                  : current
+            })
+            setOpenRow('')
+          }
+        } catch {
+          setNotice({ kind: kindKey, tone: 'error', text: t('status.failed') })
+        } finally {
+          setBusy('')
+        }
       }
 
       const applyActive = async (kindKey, id) => {
         const base = normalize(saved[kindKey])
+        if (busy === kindKey || (id !== '' && !base.providers.some((entry) => entry.id === id)))
+          return
         setBusy(kindKey)
-        const ok = await form.set(kindKey, { ...base, active: id })
-        setBusy('')
-        setNotice(
-          ok
-            ? {
-                kind: kindKey,
-                tone: 'ok',
-                text: id === '' ? t('status.auto') : t('status.switched', { id }),
+        try {
+          const ok = await form.mutate(
+            [{ op: 'set', path: [kindKey, 'active'], value: id }],
+            snapshot.revision,
+          )
+          setNotice(
+            ok
+              ? {
+                  kind: kindKey,
+                  tone: 'ok',
+                  text: id === '' ? t('status.auto') : t('status.switched', { id }),
+                }
+              : { kind: kindKey, tone: 'error', text: t('status.switchRejected') },
+          )
+          if (ok) {
+            const latest = form.getSnapshot()
+            changeDraft(kindKey, (entry) => {
+              const has = (id) => entry.value.providers.some((provider) => provider.id === id)
+              const active =
+                id === '' || has(id) ? id : has(entry.value.active) ? entry.value.active : ''
+              return {
+                ...entry,
+                value: { ...entry.value, active },
+                // Only our own active write may advance an otherwise dirty draft's fence.
+                ...(entry.revision === snapshot.revision &&
+                same(normalize(latest.value?.[kindKey]), { ...base, active: id })
+                  ? { base: normalize(latest.value?.[kindKey]), revision: latest.revision }
+                  : {}),
               }
-            : { kind: kindKey, tone: 'error', text: t('status.switchRejected') },
-        )
-        if (ok)
-          setDraft((current) => ({ ...current, [kindKey]: { ...current[kindKey], active: id } }))
+            })
+          }
+        } catch {
+          setNotice({ kind: kindKey, tone: 'error', text: t('status.failed') })
+        } finally {
+          setBusy('')
+        }
       }
 
       /** Renaming the active entry keeps the active pointer on it. */
       const updateProvider = (kindKey, index, next) =>
-        setDraft((current) => {
-          const previous = current[kindKey].providers[index]
+        changeDraft(kindKey, (entry) => {
+          const value = entry.value
+          const previous = value.providers[index]
           const active =
-            previous && current[kindKey].active === previous.id && next.id
-              ? next.id
-              : current[kindKey].active
+            previous && value.active === previous.id && next.id ? next.id : value.active
           return {
-            ...current,
-            [kindKey]: {
-              ...current[kindKey],
+            ...entry,
+            value: {
+              ...value,
               active,
-              providers: current[kindKey].providers.map((provider, at) =>
-                at === index ? next : provider,
-              ),
+              providers: value.providers.map((provider, at) => (at === index ? next : provider)),
             },
           }
         })
 
       /** Append a fresh entry and open it, so a new provider is editable at once. */
       const addProvider = (kind) => {
-        const index = draft[kind.key].providers.length
-        setDraft((current) => {
-          const providers = current[kind.key].providers
+        const index = draft[kind.key].value.providers.length
+        changeDraft(kind.key, (entry) => {
+          const providers = entry.value.providers
           const used = new Set(providers.map((provider) => provider.id))
           let serial = providers.length + 1
           while (used.has(`${kind.key}-${serial}`)) serial += 1
           return {
-            ...current,
-            [kind.key]: {
-              ...current[kind.key],
+            ...entry,
+            value: {
+              ...entry.value,
               providers: [...providers, { id: `${kind.key}-${serial}`, vendor: kind.vendorForNew }],
             },
           }
@@ -1300,31 +1371,36 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
         setOpenRow(`${kind.key}:${index}`)
       }
 
-      /** Removing the active entry clears the pointer, so the profile never names a missing id. */
+      /** Removing a row also discards its editor-only state and shifts later rows. */
       const removeProvider = (kindKey, index) =>
-        setDraft((current) => {
-          const list = current[kindKey].providers
+        changeDraft(kindKey, (entry) => {
+          const list = entry.value.providers
           const removed = list[index]
-          const active =
-            removed && current[kindKey].active === removed.id ? '' : current[kindKey].active
+          const active = removed && entry.value.active === removed.id ? '' : entry.value.active
+          const shift = (values) =>
+            Object.fromEntries(
+              Object.entries(values)
+                .filter(([at]) => Number(at) !== index)
+                .map(([at, value]) => [Number(at) > index ? Number(at) - 1 : Number(at), value]),
+            )
           return {
-            ...current,
-            [kindKey]: {
-              ...current[kindKey],
-              active,
-              providers: list.filter((_, at) => at !== index),
-            },
+            ...entry,
+            value: { ...entry.value, active, providers: list.filter((_, at) => at !== index) },
+            json: shift(entry.json),
+            keyTypes: shift(entry.keyTypes),
           }
         })
 
       const renderKind = (kind) => {
-        const value = draft[kind.key]
+        const entry = draft[kind.key]
+        const value = entry.value
         const providers = value.providers
+        const persisted = normalize(saved[kind.key])
+        const invalid = invalidJson(entry)
         const effective = effectiveActive(value)
         const status = notice && notice.kind === kind.key ? notice : null
-        const named = providers.filter((provider) => provider.id)
-        const dirty =
-          JSON.stringify(stable(value)) !== JSON.stringify(stable(normalize(saved[kind.key])))
+        const named = persisted.providers.filter((provider) => provider.id)
+        const dirty = isDirty(entry)
         const editorOpen = openRow.startsWith(`${kind.key}:`)
         const inlineSave = dirty && !editorOpen
         const activeIndex = providers.findIndex(
@@ -1349,7 +1425,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
               h('span', { style: S.activeLabel }, t('label.active')),
               h(Select, {
                 pill: true,
-                value: effective,
+                value: effectiveActive(persisted),
                 width: 190,
                 ariaLabel: t('a11y.activeFor', { kind: t(kind.titleKey) }),
                 disabled: busy === kind.key || named.length === 0,
@@ -1384,6 +1460,19 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                     isActive: index === activeIndex,
                     open: openRow === `${kind.key}:${index}`,
                     busy: busy === kind.key,
+                    invalid,
+                    jsonDraft: entry.json[index],
+                    onJsonChange: (edit) =>
+                      changeDraft(kind.key, (current) => ({
+                        ...current,
+                        json: { ...current.json, [index]: edit },
+                      })),
+                    keyType: entry.keyTypes[index] ?? keyTypeOf(provider),
+                    onKeyTypeChange: (type) =>
+                      changeDraft(kind.key, (current) => ({
+                        ...current,
+                        keyTypes: { ...current.keyTypes, [index]: type },
+                      })),
                     onToggle: () => setOpenRow(`${kind.key}:${index}`),
                     onClose: () => setOpenRow(''),
                     onCancel: () => {
@@ -1416,9 +1505,11 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
             h(
               'div',
               { style: { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 } },
-              status
-                ? h('span', { style: status.tone === 'error' ? S.error : S.status }, status.text)
-                : null,
+              invalid
+                ? h('span', { style: S.error }, t('status.jsonInvalid'))
+                : status
+                  ? h('span', { style: status.tone === 'error' ? S.error : S.status }, status.text)
+                  : null,
               inlineSave
                 ? h(
                     'button',
@@ -1440,7 +1531,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                     {
                       type: 'button',
                       className: 'dsh-wp-btn dsh-wp-primary dsh-wp-btn-sm',
-                      disabled: busy === kind.key,
+                      disabled: busy === kind.key || invalid,
                       onClick: () => save(kind.key),
                     },
                     busy === kind.key ? t('action.saving') : t('action.save'),
