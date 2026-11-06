@@ -125,7 +125,7 @@ Merging the Version Packages PR runs the same workflow with no pending
 changesets. It executes:
 
 ```sh
-pnpm release   # pnpm build && changeset publish
+pnpm release:ci   # build, then changeset publish when a credential is configured
 ```
 
 `changeset publish` publishes only versions that are not on the registry yet,
@@ -142,6 +142,108 @@ A new package starts at `0.1.0` in its manifest, with no changeset. When it
 lands on `main`, the next release run publishes `0.1.0` because that version is
 not on the registry. Do not add a changeset for the initial version unless you
 intend to publish a different number.
+
+## How npm publishing works
+
+The release workflow never runs from a tag. It runs on a push to `main`, and the
+Changesets action decides between two outcomes:
+
+1. **Pending changesets exist** → it opens or updates the Version Packages PR.
+   Nothing is published.
+2. **No pending changesets** → it runs `pnpm release:ci`:
+   `pnpm build`, then `changeset publish`.
+
+`changeset publish` asks npm which local versions already exist and publishes
+only the missing ones. It never republishes an unchanged package version. A push
+with no version change is therefore a successful no-op, and the first release is
+the exception where `0.1.0` is missing by definition.
+
+That is how independent versions work in practice: a release can publish one
+plugin, several plugins, or none, without a global repository version.
+
+### Credentials
+
+The workflow passes `secrets.NPM_TOKEN` to the runner as `NODE_AUTH_TOKEN`;
+`setup-node` writes the npm auth line, and `NPM_CONFIG_PROVENANCE=true` requests
+a signed provenance attestation. When neither a token nor the trusted-publishing
+switch is present, `pnpm release:ci` exits successfully without publishing, so
+forks and first pushes stay green.
+
+Create a granular access token:
+
+1. npmjs.com → **Access Tokens** → **Generate New Token** → **Granular Access
+   Token**.
+2. Grant read/write package access for the `@codeasier` scope (or all packages).
+3. Choose a short expiry (90 days or one year) and calendar a rotation.
+4. Allow the token to bypass 2FA so CI can publish without an OTP.
+5. Store it as a repository secret:
+
+   ```sh
+   gh secret set NPM_TOKEN --repo codeasier/dsh-plugins
+   ```
+
+   Paste it at the prompt. Never put it in `.npmrc`, a workflow file, or a
+   commit.
+
+Confirm that the scope exists and your account can publish to it:
+
+```sh
+npm login
+npm whoami
+npm org ls codeasier
+```
+
+If the scope does not exist or your account lacks publish rights, fix that
+before the first release. A successful CI run cannot work around a 404/403 from
+the registry.
+
+### First publish
+
+The packages are at `0.1.0` and no version exists on npm yet, so no changeset is
+needed for the initial publish.
+
+```sh
+pnpm release:status   # both packages: "would publish"
+gh workflow run release.yml --repo codeasier/dsh-plugins
+gh run watch
+npm view @codeasier/dsh-plugin-hello version
+gh release list
+```
+
+After both packages exist, follow the cleanup checklist in the
+[maintainer runbook](maintainers.md#first-release-of-a-package).
+
+### Later releases
+
+Merge the Version Packages PR. If no package version changed, `changeset
+publish` publishes nothing and the run still succeeds. To inspect the decision
+without uploading:
+
+```sh
+pnpm release:dry   # build, then list which package versions are missing on npm
+pnpm release:status
+```
+
+### Trusted publishing (optional)
+
+After a package exists on npm, it can use OIDC instead of a long-lived token:
+
+1. On npmjs.com, open the package → **Settings** → **Trusted publishing** →
+   GitHub Actions. Set repository `codeasier/dsh-plugins`, workflow
+   `release.yml`, and leave the environment empty. Repeat for each package.
+2. Remove the `NODE_AUTH_TOKEN` line from `release.yml`.
+3. Set the repository variable that enables publishing without a token:
+
+   ```sh
+   gh variable set RELEASE_PUBLISH --body true --repo codeasier/dsh-plugins
+   ```
+
+4. Keep `id-token: write`; provenance continues to work.
+
+The first publish of a **new** package still needs a token, because npm trusted
+publishing can only be configured for a package that already exists. Add the
+token back temporarily, or publish the package once manually and then configure
+its trusted publisher.
 
 ## Release workflow
 
@@ -189,16 +291,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_PUBLISH: ${{ vars.RELEASE_PUBLISH }}
           NPM_CONFIG_PROVENANCE: 'true'
 ```
 
 Setup notes:
 
-- Create an npm automation token with publish rights for `@codeasier` and save
-  it as the repository secret `NPM_TOKEN`. Do not use a classic token with
-  broad account scope.
-- `pnpm release:ci` skips publishing while the token is absent, so a fork or a
-  first push cannot fail the workflow. Configure the secret to enable releases.
+- Credential setup is in [How npm publishing works](#how-npm-publishing-works).
+  `pnpm release:ci` skips publishing when neither a token nor
+  `RELEASE_PUBLISH=true` is present, so a fork or a first push cannot fail the
+  workflow.
 - `setup-node` writes the npm auth line; `NPM_CONFIG_PROVENANCE=true` asks npm
   for a signed provenance attestation. Provenance needs a public repository and
   a workflow run from GitHub.
@@ -208,10 +310,10 @@ Setup notes:
 - Branch protection must allow the action's bot to push the version commit and
   tags, or use the default branch without required reviews for that bot. See
   [Maintainer runbook](maintainers.md#branch-protection).
-- Trusted publishing (OIDC) can replace the token: configure the package's
-  trusted publisher on npmjs.com for this repository and workflow, remove the
-  `NODE_AUTH_TOKEN` line, and keep `id-token: write`. The release workflow's
-  permissions are already sufficient. Test with a patch release first.
+- Trusted publishing (OIDC) can replace the token after the packages exist:
+  configure each package's trusted publisher, remove `NODE_AUTH_TOKEN`, set the
+  repository variable `RELEASE_PUBLISH=true`, and keep `id-token: write`. If the
+  token is present it takes precedence. Test with a patch release first.
 
 ## Manual release
 
@@ -224,8 +326,9 @@ export NODE_AUTH_TOKEN=...   # or `npm login`
 pnpm release
 ```
 
-`pnpm release:dry` runs the build and `changeset publish --dry-run` without
-uploading. Use it before a first release or after changing the workflow.
+`pnpm release:dry` builds and lists the package versions that are missing on
+npm; `pnpm release:status` lists them without building. Neither uploads
+anything.
 
 ## Rollback and recovery
 

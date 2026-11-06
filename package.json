@@ -42,8 +42,9 @@
     "changeset": "changeset",
     "version-packages": "changeset version && pnpm install --lockfile-only",
     "release": "pnpm build && changeset publish",
-    "release:dry": "pnpm build && changeset publish --dry-run",
-    "release:ci": "node scripts/release-ci.mjs"
+    "release:dry": "pnpm build && node scripts/release-status.mjs",
+    "release:ci": "node scripts/release-ci.mjs",
+    "release:status": "node scripts/release-status.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.6",
