@@ -79,7 +79,11 @@ design tokens (`--dsw-alias-*`, `--dsw-radius-*`), so it matches the neighbourin
 sections in light and dark themes, and its text comes from the client locale
 service.
 
-- **In use** commits immediately; leaving it on automatic is valid.
+- **In use** commits immediately for saved provider IDs; leaving it on automatic
+  is valid. Save a new or renamed provider before switching to it.
+- Drafts retain their starting revision. Concurrent changes surface a conflict
+  instead of overwriting another window's providers or credentials; Revert loads
+  the latest saved section.
 - **Edit** expands an entry in place. `Save` / `Cancel` apply to the whole
   section; `Collapse` keeps the edits as an unsaved draft.
 - **Add provider / Delete** change the list without an open editor, so the
@@ -90,7 +94,8 @@ service.
   app). Only one is ever stored; a hand-edited row that carried both converges
   on the first save.
 - **Advanced** holds the vendor-specific fields. Anything the form does not
-  model survives in **Other fields (JSON)**.
+  model survives in **Other fields (JSON)**. Invalid JSON blocks saving even
+  after the editor is collapsed; correct it or explicitly discard the draft.
 
 ## Vendors
 
@@ -157,6 +162,19 @@ the content and markdown/bare links become the sources. For an exotic shape use
 `http-json`, which declares `resultsPath`, `urlField`, `titleField`,
 `snippetField`, and `contentField` explicitly.
 
+For `http-json` fetch, `method` defaults to `GET`; `{url}` substitutes the target
+and `queryParam`, when set, adds it as a query-string parameter. `POST` sends a
+JSON object containing the target under `queryParam` (default `url`), alongside
+any template substitution. Other fetch methods are rejected.
+
+All transports validate HTTP(S) URLs without userinfo and follow at most five
+same-origin redirects. Cross-origin redirects are rejected and require a new
+tool call, so custom authentication headers never follow them. Responses are
+capped at 5 MB; HTML conversion scans at most one million characters in linear
+time and reports truncation, in addition to the configured output character cap.
+Transport diagnostics omit URL paths, query strings, and raw exception details;
+upstream error diagnostics redact known request credentials.
+
 ## 9Router
 
 The gateway's `/v1/search` takes the channel as the model: `{"model":"tavily"}`
@@ -179,7 +197,8 @@ GET {baseURL}/models/info?id=tavily/search  # params, searchTypes, maxResults
 Those ids end in `/search`, but `/v1/search` expects the bare name. `ag` is not
 in that registry — it is the Gemini/antigravity grounding channel. Which
 channels work is decided by the gateway: one without credentials answers
-`No credentials for provider: X`, and the plugin reports that verbatim.
+`No credentials for provider: X`, and the plugin reports a credential-redacted
+diagnostic.
 
 ## Compatibility
 

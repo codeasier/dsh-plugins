@@ -16,14 +16,15 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type {
-  WebFetchProvider,
-  WebFetchRequest,
-  WebFetchResult,
-  WebSearchProvider,
-  WebSearchRequest,
-  WebSearchResult,
-  WebSearchSource,
+import {
+  WebError,
+  type WebFetchProvider,
+  type WebFetchRequest,
+  type WebFetchResult,
+  type WebSearchProvider,
+  type WebSearchRequest,
+  type WebSearchResult,
+  type WebSearchSource,
 } from '@deepseek-ai/dsh-web'
 import z from '@deepseek-ai/schemastery'
 
@@ -40,6 +41,7 @@ const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_MAX_RESULTS = 8
 const MAX_BODY_CHARS = 100_000
 const MAX_RESPONSE_BYTES = 5_000_000
+const MAX_HTML_CHARS = 1_000_000
 const DEFAULT_USER_AGENT =
   'deepseek-harness/web-providers (+https://github.com/codeasier/dsh-plugins)'
 const HTTP_URL = /^https?:\/\/\S+$/u
@@ -207,18 +209,9 @@ export const Config: z<Config> = z.object({
   fetch: listSchema(),
 }) as z<Config>
 
-/** Typed error: consumers read `code`, messages never contain a key. */
-class ProviderError extends Error {
-  readonly code: string
-
-  constructor(message: string, code: string) {
-    super(message)
-    this.code = code
-  }
-}
-
-function providerError(message: string, code: string): ProviderError {
-  return new ProviderError(message, code)
+/** Use the host's shared error identity so tools retain structured codes. */
+function providerError(message: string, code: string): WebError {
+  return new WebError(message, code)
 }
 
 function str(value: unknown): string | undefined {
@@ -414,25 +407,140 @@ function requireEntry(config: Config | undefined, kind: 'search' | 'fetch'): Pro
 
 // ── request helpers ─────────────────────────────────────────────────────────
 
-/** Perform one JSON request, mapping transport and HTTP failures to messages. */
+/** Diagnostics identify only an origin, never a credential-bearing URL. */
+function endpointIdentity(url: string): string {
+  try {
+    return new URL(url).origin
+  } catch {
+    return 'configured endpoint'
+  }
+}
+
+/** Redact reflected request credentials before bounding an upstream diagnostic. */
+function safeDetail(value: unknown, spec: ProviderSpec, url: string, init: RequestInit): string {
+  const secrets = new Set<string>()
+  const add = (value: string | undefined) => {
+    if (!value) return
+    secrets.add(value)
+    secrets.add(encodeURIComponent(value))
+    secrets.add(new URLSearchParams({ v: value }).toString().slice(2))
+  }
+  add(spec.apiKey)
+  try {
+    const parsed = new URL(url)
+    add(parsed.username)
+    add(parsed.password)
+    for (const value of parsed.searchParams.values()) add(value)
+  } catch {
+    // Invalid addresses are never echoed by the transport boundary.
+  }
+  for (const [name, value] of new Headers(init.headers)) {
+    if (
+      ['accept', 'content-type', 'user-agent'].includes(name) &&
+      name !== spec.authHeader?.toLowerCase()
+    )
+      continue
+    add(value)
+    for (const prefix of [str(spec.authPrefix), name === 'authorization' ? 'Bearer' : undefined]) {
+      if (prefix !== undefined && value.startsWith(`${prefix} `))
+        add(value.slice(prefix.length + 1))
+    }
+  }
+  let detail = String(value).replace(/https?:\/\/[^\s<>"']+/giu, '[endpoint]')
+  for (const secret of [...secrets].sort((a, b) => b.length - a.length)) {
+    detail = detail.replaceAll(secret, '[redacted]')
+  }
+  return detail.replace(/\s+/gu, ' ').slice(0, 200)
+}
+
+function validatedURL(value: string, base?: URL): URL {
+  let url: URL
+  try {
+    url = new URL(value, base)
+  } catch {
+    throw providerError('web request needs a valid HTTP(S) URL', 'WEB_INVALID_URL')
+  }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+    throw providerError('web request needs an HTTP(S) URL without userinfo', 'WEB_INVALID_URL')
+  }
+  return url
+}
+
+/** One timeout and byte budget across validated, same-origin redirect hops. */
+async function requestBody(
+  spec: ProviderSpec,
+  url: string,
+  init: RequestInit,
+  signal?: AbortSignal,
+  timeoutCode = 'WEB_TIMEOUT',
+): Promise<{ response: Response; text: string; url: string; truncated: boolean }> {
+  const timeoutMs = timeoutOf(spec)
+  const composed = combinedSignal(signal, timeoutMs)
+  const initial = validatedURL(url)
+  let current = initial
+  let nextInit = { ...init }
+  try {
+    for (let redirects = 0; ; redirects++) {
+      composed.throwIfAborted()
+      const response = await fetch(current.toString(), {
+        ...nextInit,
+        redirect: 'manual',
+        signal: composed,
+      })
+      if (![301, 302, 303, 307, 308].includes(response.status)) {
+        const { bytes, truncated } = await readCapped(response, MAX_RESPONSE_BYTES)
+        return {
+          response,
+          text: new TextDecoder().decode(bytes),
+          url: current.toString(),
+          truncated,
+        }
+      }
+      await response.body?.cancel()
+      const location = response.headers.get('location')
+      if (redirects >= 5 || location === null) {
+        throw providerError(
+          'web redirect limit reached or missing Location',
+          'WEB_REDIRECT_BLOCKED',
+        )
+      }
+      const target = validatedURL(location, current)
+      if (target.origin !== initial.origin) {
+        throw providerError(
+          'cross-origin web redirect blocked; use a new tool call for the target',
+          'WEB_REDIRECT_BLOCKED',
+        )
+      }
+      const method = (nextInit.method ?? 'GET').toUpperCase()
+      if (
+        (response.status === 303 && method !== 'GET' && method !== 'HEAD') ||
+        ([301, 302].includes(response.status) && method === 'POST')
+      ) {
+        const headers = new Headers(nextInit.headers)
+        headers.delete('content-type')
+        headers.delete('content-length')
+        nextInit = { ...nextInit, method: 'GET', headers }
+        delete nextInit.body
+      }
+      current = target
+    }
+  } catch (error) {
+    if (signal?.aborted === true) throw providerError('web request aborted', 'WEB_ABORTED')
+    if (composed.aborted)
+      throw providerError(`web request timed out after ${timeoutMs} ms`, timeoutCode)
+    if (error instanceof WebError) throw error
+    throw providerError(`cannot reach ${endpointIdentity(url)}`, 'WEB_PROVIDER_ERROR')
+  }
+}
+
+/** Perform one JSON request, mapping transport and HTTP failures to safe messages. */
 async function requestJSON(
   spec: ProviderSpec,
   url: string,
   init: RequestInit,
   signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
-  const timeoutMs = timeoutOf(spec)
-  const composed = combinedSignal(signal, timeoutMs)
-  let response: Response
-  try {
-    response = await fetch(url, { redirect: 'error', ...init, signal: composed })
-  } catch (error) {
-    if (signal?.aborted === true) throw providerError('web request aborted', 'WEB_ABORTED')
-    if (composed.aborted)
-      throw providerError(`web request timed out after ${timeoutMs} ms`, 'WEB_TIMEOUT')
-    throw providerError(`cannot reach ${url}: ${String(error)}`, 'WEB_PROVIDER_ERROR')
-  }
-  const text = await response.text()
+  const { response, text } = await requestBody(spec, url, init, signal)
   let payload: Record<string, unknown> | undefined
   try {
     payload = JSON.parse(text) as Record<string, unknown>
@@ -441,16 +549,13 @@ async function requestJSON(
   }
   if (!response.ok) {
     const detail =
-      at(payload, 'error.message') ??
-      at(payload, 'error') ??
-      at(payload, 'message') ??
-      text.slice(0, 200)
+      at(payload, 'error.message') ?? at(payload, 'error') ?? at(payload, 'message') ?? text
     const code =
       response.status === 401 || response.status === 403
         ? 'WEB_PROVIDER_CREDENTIAL_MISSING'
         : 'WEB_PROVIDER_ERROR'
     throw providerError(
-      `${spec.vendor} request failed (HTTP ${response.status}): ${String(detail)}`,
+      `${spec.vendor} request failed (HTTP ${response.status}): ${safeDetail(detail, spec, url, init)}`,
       code,
     )
   }
@@ -459,39 +564,31 @@ async function requestJSON(
   return payload
 }
 
-/**
- * GET (or POST) a URL and return its body as text, without assuming JSON.
- * The `url` vendor has no idea what shape the endpoint answers in, so it
- * decides after reading the body instead of failing on a parse error.
- */
+/** Read an unknown response shape with the same safe transport boundary. */
 async function requestText(
   spec: ProviderSpec,
   url: string,
   init: RequestInit,
   signal?: AbortSignal,
-): Promise<{ text: string; contentType: string; url: string }> {
-  const timeoutMs = timeoutOf(spec)
-  const composed = combinedSignal(signal, timeoutMs)
-  let response: Response
-  try {
-    response = await fetch(url, { redirect: 'follow', ...init, signal: composed })
-  } catch (error) {
-    if (signal?.aborted === true) throw providerError('web request aborted', 'WEB_ABORTED')
-    if (composed.aborted)
-      throw providerError(`web request timed out after ${timeoutMs} ms`, 'WEB_TIMEOUT')
-    throw providerError(`cannot reach ${url}: ${String(error)}`, 'WEB_PROVIDER_ERROR')
-  }
-  const { bytes } = await readCapped(response, MAX_RESPONSE_BYTES)
-  const text = new TextDecoder().decode(bytes)
+): Promise<{ text: string; contentType: string; url: string; truncated: boolean }> {
+  const result = await requestBody(spec, url, init, signal)
+  const { response, text } = result
   if (!response.ok) {
-    const detail = text.replace(/\s+/gu, ' ').slice(0, 200)
     const code =
       response.status === 401 || response.status === 403
         ? 'WEB_PROVIDER_CREDENTIAL_MISSING'
         : 'WEB_PROVIDER_ERROR'
-    throw providerError(`custom url failed (HTTP ${response.status}): ${detail}`, code)
+    throw providerError(
+      `custom url failed (HTTP ${response.status}): ${safeDetail(text, spec, url, init)}`,
+      code,
+    )
   }
-  return { text, contentType: response.headers.get('content-type') ?? '', url: response.url || url }
+  return {
+    text,
+    contentType: response.headers.get('content-type') ?? '',
+    url: result.url,
+    truncated: result.truncated,
+  }
 }
 
 /** Read at most `limitBytes` from a response body. */
@@ -602,24 +699,58 @@ function linksInText(text: string, limit: number): WebSearchSource[] {
   return found
 }
 
-/** Strip HTML to readable text; enough for tools, not a full readability pass. */
-function htmlToText(html: string): string {
-  return html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/giu, ' ')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/giu, ' ')
-    .replace(/<!--[\s\S]*?-->/gu, ' ')
-    .replace(/<\/(p|div|section|article|li|tr|h[1-6]|blockquote|pre)>/giu, '\n')
-    .replace(/<br\s*\/?>/giu, '\n')
-    .replace(/<[^>]+>/gu, ' ')
+/** A bounded forward-only scan avoids regex rescans of malformed remote tags. */
+function htmlToText(input: string): string {
+  const html = input.slice(0, MAX_HTML_CHARS)
+  const lower = html.replace(/[A-Z]/gu, (char) => char.toLowerCase())
+  const parts: string[] = []
+  let cursor = 0
+  while (cursor < html.length) {
+    const start = html.indexOf('<', cursor)
+    if (start === -1) {
+      parts.push(html.slice(cursor))
+      break
+    }
+    parts.push(html.slice(cursor, start))
+    if (html.startsWith('<!--', start)) {
+      const end = html.indexOf('-->', start + 4)
+      cursor = end === -1 ? html.length : end + 3
+      parts.push(' ')
+      continue
+    }
+    const end = html.indexOf('>', start + 1)
+    if (end === -1) {
+      parts.push(html.slice(start))
+      break
+    }
+    const tag = html.slice(start + 1, end).trimStart()
+    const closing = tag.startsWith('/')
+    const name = /^[a-z][a-z0-9]*/iu
+      .exec((closing ? tag.slice(1) : tag).trimStart())?.[0]
+      ?.toLowerCase()
+    if (!closing && (name === 'script' || name === 'style')) {
+      const close = lower.indexOf(`</${name}`, end + 1)
+      const closeEnd = close === -1 ? -1 : html.indexOf('>', close + name.length + 2)
+      cursor = closeEnd === -1 ? html.length : closeEnd + 1
+      parts.push(' ')
+      continue
+    }
+    const block =
+      name !== undefined && /^(p|div|section|article|li|tr|h[1-6]|blockquote|pre)$/u.test(name)
+    parts.push(name === 'br' || (block && closing) ? '\n' : ' ')
+    cursor = end + 1
+  }
+  return parts
+    .join('')
     .replace(/&nbsp;/gu, ' ')
     .replace(/&amp;/gu, '&')
     .replace(/&lt;/gu, '<')
     .replace(/&gt;/gu, '>')
     .replace(/&quot;/gu, '"')
     .replace(/&#39;/gu, "'")
-    .replace(/[ \t]+\n/gu, '\n')
+    .replace(/[ \t]+/gu, ' ')
+    .replace(/ ?\n ?/gu, '\n')
     .replace(/\n{3,}/gu, '\n\n')
-    .replace(/[ \t]{2,}/gu, ' ')
     .trim()
 }
 
@@ -668,7 +799,7 @@ const searchVendors: Record<string, SearchVendor> = {
     }
     if (!HTTP_URL.test(template.replaceAll('{query}', 'x').replaceAll('{max}', '1'))) {
       throw providerError(
-        `custom url entry "${spec.id}" needs an http(s) URL, got "${template}"`,
+        `custom url entry "${spec.id}" needs a valid HTTP(S) URL`,
         'WEB_PROVIDER_ERROR',
       )
     }
@@ -685,7 +816,12 @@ const searchVendors: Record<string, SearchVendor> = {
       ...authHeaders(spec, apiKey),
     }
     const method = (str(spec.method) ?? 'GET').toUpperCase()
-    const { text, contentType } = await requestText(spec, endpoint, { method, headers }, signal)
+    const { text, contentType, truncated } = await requestText(
+      spec,
+      endpoint,
+      { method, headers },
+      signal,
+    )
     const maxChars = maxBodyOf(spec)
 
     let payload: unknown
@@ -721,7 +857,7 @@ const searchVendors: Record<string, SearchVendor> = {
       return {
         ...(content === undefined ? {} : { content: content.slice(0, maxChars) }),
         sources,
-        truncated: rows.length > max,
+        truncated: truncated || rows.length > max,
       }
     }
 
@@ -731,7 +867,7 @@ const searchVendors: Record<string, SearchVendor> = {
     return {
       content,
       sources: cleanSources(linksInText(body, max)),
-      truncated: body.length > maxChars,
+      truncated: truncated || body.length > maxChars || (isHTML && text.length > MAX_HTML_CHARS),
     }
   },
 
@@ -791,11 +927,14 @@ const searchVendors: Record<string, SearchVendor> = {
     const errors = Array.isArray(payload.errors) ? payload.errors : []
     const failure = str(errors[0]) ?? str(at(errors[0], 'message'))
     if (failure !== undefined)
-      throw providerError(`9router channel "${channel}" failed: ${failure}`, 'WEB_PROVIDER_ERROR')
+      throw providerError(
+        `9router channel "${channel}" failed: ${safeDetail(failure, spec, baseURL, { headers: { authorization: `Bearer ${apiKey}` } })}`,
+        'WEB_PROVIDER_ERROR',
+      )
     const errorMessage = at(payload, 'error.message') ?? at(payload, 'error')
     if (errorMessage !== undefined) {
       throw providerError(
-        `9router channel "${channel}" failed: ${String(errorMessage)}`,
+        `9router channel "${channel}" failed: ${safeDetail(errorMessage, spec, baseURL, { headers: { authorization: `Bearer ${apiKey}` } })}`,
         'WEB_PROVIDER_ERROR',
       )
     }
@@ -1143,7 +1282,7 @@ const fetchVendors: Record<string, FetchVendor> = {
       accept: 'text/plain, text/html;q=0.9, application/json;q=0.8, */*;q=0.7',
       ...authHeaders(spec, apiKey),
     }
-    const { text, contentType } = await requestText(
+    const { text, contentType, truncated } = await requestText(
       spec,
       endpoint,
       { method: (str(spec.method) ?? 'GET').toUpperCase(), headers },
@@ -1178,77 +1317,63 @@ const fetchVendors: Record<string, FetchVendor> = {
         kind: 'text' as const,
         content: raw.length > maxChars ? raw.slice(0, maxChars) : raw,
       },
-      truncated: raw.length > maxChars,
+      truncated:
+        truncated ||
+        raw.length > maxChars ||
+        (/html/i.test(contentType) && text.length > MAX_HTML_CHARS),
     }
   },
 
   async http(_ctx, spec, request, signal) {
-    const timeoutMs = timeoutOf(spec)
-    const composed = combinedSignal(signal, timeoutMs)
-    let response: Response
-    try {
-      response = await fetch(request.url, {
-        redirect: 'follow',
+    const {
+      response,
+      text: raw,
+      url,
+      truncated,
+    } = await requestBody(
+      spec,
+      request.url,
+      {
         headers: {
           accept: 'text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8',
           'user-agent': DEFAULT_USER_AGENT,
         },
-        signal: composed,
-      })
-    } catch (error) {
-      if (signal?.aborted === true) throw providerError('web fetch aborted', 'WEB_ABORTED')
-      if (composed.aborted)
-        throw providerError(`web fetch timed out after ${timeoutMs} ms`, 'WEB_FETCH_TIMEOUT')
-      throw providerError(`web fetch failed: ${String(error)}`, 'WEB_PROVIDER_ERROR')
-    }
-    const contentType = response.headers.get('content-type') ?? ''
-    const { bytes, truncated } = await readCapped(response, MAX_RESPONSE_BYTES)
-    const raw = new TextDecoder().decode(bytes)
-    const isHTML = /html/i.test(contentType)
+      },
+      signal,
+      'WEB_FETCH_TIMEOUT',
+    )
+    const isHTML = /html/i.test(response.headers.get('content-type') ?? '')
     const maxChars = maxBodyOf(spec)
     const text = isHTML ? htmlToText(raw) : raw
     return {
-      url: response.url || request.url,
+      url,
       statusCode: response.status,
-      body: {
-        kind: 'text' as const,
-        content: text.length > maxChars ? text.slice(0, maxChars) : text,
-      },
-      truncated: truncated || text.length > maxChars,
+      body: { kind: 'text' as const, content: text.slice(0, maxChars) },
+      truncated: truncated || text.length > maxChars || (isHTML && raw.length > MAX_HTML_CHARS),
     }
   },
 
   async jina(ctx, spec, request, signal) {
     const baseURL = resolveBaseURL(spec) ?? 'https://r.jina.ai'
     const apiKey = await resolveKey(ctx, spec)
-    const timeoutMs = timeoutOf(spec)
-    const composed = combinedSignal(signal, timeoutMs)
-    let response: Response
-    try {
-      response = await fetch(`${baseURL}/${request.url}`, {
-        redirect: 'follow',
+    const { response, text, truncated } = await requestBody(
+      spec,
+      `${baseURL}/${request.url}`,
+      {
         headers: {
           accept: 'text/plain',
           ...(apiKey === undefined ? {} : { authorization: `Bearer ${apiKey}` }),
         },
-        signal: composed,
-      })
-    } catch (error) {
-      if (signal?.aborted === true) throw providerError('web fetch aborted', 'WEB_ABORTED')
-      if (composed.aborted)
-        throw providerError(`web fetch timed out after ${timeoutMs} ms`, 'WEB_FETCH_TIMEOUT')
-      throw providerError(`web fetch failed: ${String(error)}`, 'WEB_PROVIDER_ERROR')
-    }
-    const text = await response.text()
+      },
+      signal,
+      'WEB_FETCH_TIMEOUT',
+    )
     const maxChars = maxBodyOf(spec)
     return {
       url: request.url,
       statusCode: response.status,
-      body: {
-        kind: 'text' as const,
-        content: text.length > maxChars ? text.slice(0, maxChars) : text,
-      },
-      truncated: text.length > maxChars,
+      body: { kind: 'text' as const, content: text.slice(0, maxChars) },
+      truncated: truncated || text.length > maxChars,
     }
   },
 
@@ -1305,7 +1430,15 @@ const fetchVendors: Record<string, FetchVendor> = {
       },
       signal,
     )
-    const first = rowsAt(payload, 'results')[0]
+    const first = rowsAt(payload, 'results').find((row) => row.url === request.url)
+    if (first === undefined) {
+      const failure = rowsAt(payload, 'failed_results').find((row) => row.url === request.url)
+      const detail = failure?.error ?? 'no successful result for the requested URL'
+      throw providerError(
+        `tavily extraction failed: ${safeDetail(detail, spec, baseURL, { headers: { authorization: `Bearer ${apiKey}` } })}`,
+        'WEB_PROVIDER_ERROR',
+      )
+    }
     const content = at(first, 'raw_content') ?? at(first, 'content') ?? ''
     return {
       url: request.url,
@@ -1351,12 +1484,26 @@ const fetchVendors: Record<string, FetchVendor> = {
     const template = str(spec.url)
     if (template === undefined)
       throw providerError(`http-json entry "${spec.id}" needs url`, 'WEB_PROVIDER_ERROR')
-    const url = template.replaceAll('{url}', encodeURIComponent(request.url))
-    const headers = {
+    let url = template.replaceAll('{url}', encodeURIComponent(request.url))
+    const method = (str(spec.method) ?? 'GET').toUpperCase()
+    if (method !== 'GET' && method !== 'POST') {
+      throw providerError('http-json fetch supports only GET or POST', 'WEB_PROVIDER_ERROR')
+    }
+    const headers: Record<string, string> = {
       accept: 'application/json',
       ...(apiKey === undefined ? {} : { authorization: `Bearer ${apiKey}` }),
     }
-    const payload = await requestJSON(spec, url, { headers }, signal)
+    const init: RequestInit = { method, headers }
+    const param = str(spec.queryParam)
+    if (method === 'GET' && param !== undefined) {
+      const endpoint = new URL(url)
+      endpoint.searchParams.set(param, request.url)
+      url = endpoint.toString()
+    } else if (method === 'POST') {
+      headers['content-type'] = 'application/json'
+      init.body = JSON.stringify({ [param ?? 'url']: request.url })
+    }
+    const payload = await requestJSON(spec, url, init, signal)
     const content =
       at(payload, str(spec.contentField)) ?? at(payload, 'content') ?? at(payload, 'data')
     return {
