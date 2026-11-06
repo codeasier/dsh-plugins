@@ -8,7 +8,8 @@ owner.
 ## Option A: the Plugins page
 
 1. Open DeepSeek Harness Desktop.
-2. Open **Plugins** in the sidebar.
+2. Open **Plugins** in the sidebar. (Before the first release, install a local
+   tarball instead; the registry name does not resolve yet.)
 3. Search for `@codeasier/dsh-plugin-hello` and install it, or point the
    installer at a local tarball.
 4. Confirm the bundle is enabled.

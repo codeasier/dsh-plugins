@@ -4,7 +4,6 @@ Community plugins for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek
 (`dsh`) — one independently versioned npm package per plugin.
 
 [![CI](https://github.com/codeasier/dsh-plugins/actions/workflows/ci.yml/badge.svg)](https://github.com/codeasier/dsh-plugins/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/@codeasier/dsh-plugin-hello?label=hello)](https://www.npmjs.com/package/@codeasier/dsh-plugin-hello)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D22.18-339933.svg)](package.json)
 
@@ -12,6 +11,10 @@ English | [中文](README.zh.md)
 
 > Not affiliated with DeepSeek. `dsh` and DeepSeek Harness are the platform;
 > this repository ships community extensions for it.
+>
+> **Status: initial scaffold.** The reference plugin is not on npm yet. Until the
+> first release, install it from a checkout with `pnpm install:local` — see
+> [Getting started § Run your plugin in DSH](docs/getting-started.md#run-your-plugin-in-dsh).
 
 ## Why this repository
 

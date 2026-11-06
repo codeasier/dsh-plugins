@@ -21,13 +21,15 @@ Operational tasks that keep the repository and the npm organization healthy.
 
 Protect `main` with:
 
-- a pull request before merging;
-- the `CI` workflow required;
-- one approving review for outside contributors (maintainers may use their
-  judgment for documentation-only changes);
+- a pull request before merging (administrators keep a bypass for emergencies);
+- these required checks: `Check (Node 22)`, `Check (Node 24)`, and
+  `Install into a clean DSH profile`, with branches required to be up to date;
 - conversation resolution required;
 - force pushes and deletions disabled;
-- linear history preferred.
+- linear history required.
+
+A review is expected by convention, not enforced while the project has a single
+maintainer. Enable required reviews when a second regular reviewer joins.
 
 The Changesets bot opens the Version Packages PR; it does not need direct push
 access to `main`. Tags are pushed by the release action and are not blocked by
