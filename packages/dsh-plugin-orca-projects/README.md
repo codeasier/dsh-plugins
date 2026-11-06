@@ -29,7 +29,8 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   the named worktree derived from its working directory, such as
   `.worktrees/feature-a` or Orca's `workspaces/<project>/2.0-review`.
   Cross-project, pinned, and flat rows always show the label; project rows show
-  named worktrees and omit the implicit `main`.
+  a named worktree when it is not already the project title, and omit the
+  implicit `main`.
 - **Custom groups.** Use a project's `...` menu → **移动到分组** to create a group
   or move the project into one. You can also drag a project onto a group. Group
   headers can be renamed, deleted, and used to add projects; deleting a group
