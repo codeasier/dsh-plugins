@@ -16,6 +16,7 @@ const packages = readPackages()
 const ignored = new Set(readJson(join(ROOT, '.changeset', 'config.json')).ignore ?? [])
 const rows = []
 let failed = false
+let wouldPublish = 0
 
 for (const pkg of packages) {
   if (ignored.has(pkg.name)) {
@@ -50,6 +51,7 @@ for (const { pkg, published, problem, ignored: isIgnored } of rows) {
   } else if (published) {
     console.log(`${pkg.name}@${pkg.version}  already on npm, skipped`)
   } else {
+    wouldPublish += 1
     console.log(`${pkg.name}@${pkg.version}  would publish`)
   }
 }
@@ -57,8 +59,10 @@ for (const { pkg, published, problem, ignored: isIgnored } of rows) {
 if (failed) {
   console.error('\nCould not determine every package version; fix the npm access above.')
   process.exitCode = 1
-} else {
+} else if (wouldPublish > 0) {
   console.log('\nNo upload happened. Run the Release workflow to publish the missing versions.')
+} else {
+  console.log('\nNothing to publish.')
 }
 
 /** npm returns 404 for a package/version that does not exist yet. */
