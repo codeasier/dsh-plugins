@@ -979,7 +979,8 @@ window.__ModuleLoader__.load({
         ? h(Icon, { name: 'pinFilled', size: 10, className: 'orca-session-pin' })
         : null
       const titleBadge = h('span', { className: 'orca-session-title', title }, title)
-      const inlineWorktree = worktree && !worktree.main ? worktreeBadge : null
+      const inlineWorktree =
+        worktree && !worktree.main && worktree.label !== project.title ? worktreeBadge : null
 
       const main = h(
         'div',
