@@ -62,8 +62,8 @@ not depend on an unpublished package.
 ## Pack and publish artifact
 
 ```sh
-pnpm --filter <name> pack          # writes <name>-<version>.tgz
-pnpm pack:check                    # after pnpm build; validates every tarball
+pnpm --filter <name> pack --pack-destination .pack   # .pack/<name>-<version>.tgz
+pnpm pack:check                                      # after pnpm build
 ```
 
 The pack check reads `npm pack --dry-run --json` and asserts:

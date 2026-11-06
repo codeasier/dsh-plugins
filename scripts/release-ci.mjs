@@ -21,5 +21,7 @@ if (!token) {
   process.exit(0)
 }
 
-execFileSync('pnpm', ['build'], { cwd: ROOT, stdio: 'inherit' })
-execFileSync('pnpm', ['exec', 'changeset', 'publish'], { cwd: ROOT, stdio: 'inherit' })
+const env = { ...process.env, NODE_AUTH_TOKEN: token }
+
+execFileSync('pnpm', ['build'], { cwd: ROOT, stdio: 'inherit', env })
+execFileSync('pnpm', ['exec', 'changeset', 'publish'], { cwd: ROOT, stdio: 'inherit', env })
