@@ -183,7 +183,7 @@ jobs:
       - uses: changesets/action@v1.9.0
         with:
           version: pnpm version-packages
-          publish: pnpm release
+          publish: pnpm release:ci
           commitMode: github-api
           createGithubReleases: true
         env:
@@ -197,6 +197,8 @@ Setup notes:
 - Create an npm automation token with publish rights for `@codeasier` and save
   it as the repository secret `NPM_TOKEN`. Do not use a classic token with
   broad account scope.
+- `pnpm release:ci` skips publishing while the token is absent, so a fork or a
+  first push cannot fail the workflow. Configure the secret to enable releases.
 - `setup-node` writes the npm auth line; `NPM_CONFIG_PROVENANCE=true` asks npm
   for a signed provenance attestation. Provenance needs a public repository and
   a workflow run from GitHub.
