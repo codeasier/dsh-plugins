@@ -1,9 +1,15 @@
 import { readFileSync } from 'node:fs'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
 
 import * as React from 'react'
 import { renderToString } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+
+import { apply, REPOSITORY_ROUTE } from './index'
+import { resolveRepositories } from './repo'
 
 type UnknownRecord = Record<string, unknown>
 
@@ -55,14 +61,35 @@ interface State {
   activeOnly: boolean
   groups: Group[]
   assignments: Record<string, string>
+  projectNames: Record<string, string>
   projectOrder: Record<string, string[]>
   sessionOrder: Record<string, string[]>
   collapsed: Record<string, boolean>
 }
 
+interface RepoEntry {
+  path: string
+  key: string
+  root: string
+  title: string
+  main: boolean
+  worktree: string
+}
+
 interface ProjectView {
   key: string
   workspaceId: string | null
+  workspaceIds: string[]
+  memberPaths: string[]
+  worktrees: Array<{
+    workspaceId: string
+    path: string
+    label: string
+    main: boolean
+    title: string
+    sessionCount: number
+  }>
+  groupId: string | null
   title: string | null
   path: string | null
   sessions: Summary[]
@@ -79,6 +106,7 @@ interface View {
   flat: Array<{ session: Summary; project: ProjectView }>
   searchResults: Array<{ session: Summary; project: ProjectView }>
   tree: Array<{ project: ProjectView; children: unknown[] }>
+  workspaceBySession: Map<string, string>
   counts: { projects: number; sessions: number; pinned: number }
   hasProjects: boolean
 }
@@ -93,9 +121,11 @@ interface Internals {
     statusMap?: ReadonlyMap<string, { running?: boolean; pendingInteraction?: unknown }>
     currentId?: string
     query?: string
+    repoMap?: ReadonlyMap<string, RepoEntry>
   }): View
   createGroup(state: State, id: string, name: string): State
   assignProject(state: State, path: string, groupId: string | null): State
+  renameProject(state: State, key: string, name: string): State
   deleteGroup(state: State, id: string): State
   moveProjectInOrder(
     state: State,
@@ -104,6 +134,7 @@ interface Internals {
     orderedKeys: string[],
     anchorKey: string | null,
     position: 'before' | 'after',
+    memberPaths?: string[],
   ): State
   moveSessionInOrder(
     state: State,
@@ -120,6 +151,13 @@ interface Internals {
     summary: Summary,
     statusMap?: ReadonlyMap<string, { running?: boolean; pendingInteraction?: unknown }>,
   ): boolean
+  workspaceRepo(workspace: Workspace, repoMap?: ReadonlyMap<string, RepoEntry>): RepoEntry
+  repoFromPathFallback(value: string): RepoEntry | null
+  worktreeForSession(
+    session: Pick<Summary, 'id' | 'cwd'>,
+    project: Pick<ProjectView, 'path'> | null,
+    workspaceBySession?: ReadonlyMap<string, string>,
+  ): { label: string; main: boolean } | null
   worktreeFromPath(value: string): { label: string; main: boolean }
   sessionWorktree(
     session: Pick<Summary, 'cwd'>,
@@ -197,6 +235,52 @@ function snapshots(): { workspaceSnapshot: WorkspaceSnapshot; sessionSnapshot: S
     },
   }
   return { workspaceSnapshot, sessionSnapshot }
+}
+
+function consolidationSnapshots(): {
+  workspaceSnapshot: WorkspaceSnapshot
+  sessionSnapshot: SessionSnapshot
+  repoMap: Map<string, RepoEntry>
+  main: string
+  feature: string
+} {
+  const main = '/projects/repo'
+  const feature = '/projects/repo/.worktrees/feature-a'
+  const workspaceSnapshot: WorkspaceSnapshot = {
+    items: [
+      workspace('w-main', main, ['s-main']),
+      workspace('w-feature', feature, ['s-feature']),
+      workspace('w-other', '/projects/other', ['s-other']),
+    ],
+    archivedSessionIds: [],
+    pinnedSessionIds: [],
+    phase: 'ready',
+    state: 'idle',
+    error: null,
+  }
+  const sessionSnapshot: SessionSnapshot = {
+    ids: ['s-main', 's-feature', 's-other'],
+    byId: {
+      's-main': summary('s-main', 'Main', NOW - 1000, main),
+      's-feature': summary('s-feature', 'Feature', NOW - 500, feature),
+      's-other': summary('s-other', 'Other', NOW - 2000, '/projects/other'),
+    },
+  }
+  const repoMap = new Map<string, RepoEntry>([
+    [main, { path: main, key: main, root: main, title: 'repo', main: true, worktree: 'main' }],
+    [
+      feature,
+      {
+        path: feature,
+        key: main,
+        root: main,
+        title: 'repo',
+        main: false,
+        worktree: 'feature-a',
+      },
+    ],
+  ])
+  return { workspaceSnapshot, sessionSnapshot, repoMap, main, feature }
 }
 
 let storageValue: string | null = null
@@ -376,6 +460,7 @@ describe('client bundle', () => {
       archivedFilter: 'all',
       groups: [{ id: 'g-client', name: 'Client work' }],
       assignments: { '/projects/one': 'g-client' },
+      projectNames: {},
       projectOrder: { 'g-client': ['/projects/one'] },
       sessionOrder: { '/projects/one': ['s-one'] },
       collapsed: {},
@@ -617,6 +702,128 @@ describe('orca view model', () => {
     expect(internals.isActiveSession(summary, statusMap)).toBe(true)
   })
 
+  it('consolidates worktrees under one project using host repository identities', () => {
+    const client = loadClient()
+    const internals = client.__internals
+    const { workspaceSnapshot, sessionSnapshot, repoMap, main, feature } = consolidationSnapshots()
+    const view = internals.buildView({
+      workspaceSnapshot,
+      sessionSnapshot,
+      repoMap,
+      state: internals.defaultState(),
+    })
+
+    expect(view.projects.map((entry) => entry.key)).toEqual([main, '/projects/other'])
+    const consolidated = project(view, main)
+    expect(consolidated.title).toBe('repo')
+    expect(consolidated.path).toBe(main)
+    expect(consolidated.sessions.map((entry) => entry.id)).toEqual(['s-feature', 's-main'])
+    expect(consolidated.workspaceIds).toEqual(['w-main', 'w-feature'])
+    expect(consolidated.worktrees.map((entry) => entry.label)).toEqual(['main', 'feature-a'])
+    expect(view.workspaceBySession.get('s-feature')).toBe(feature)
+    const featureSession = sessionSnapshot.byId['s-feature']
+    if (featureSession === undefined) throw new Error('s-feature summary missing')
+    expect(
+      internals.worktreeForSession(featureSession, consolidated, view.workspaceBySession),
+    ).toEqual({ label: 'feature-a', main: false })
+    expect(view.counts.projects).toBe(2)
+  })
+
+  it('applies a group assignment made on a worktree path to the whole project', () => {
+    const client = loadClient()
+    const internals = client.__internals
+    const { workspaceSnapshot, sessionSnapshot, repoMap, main, feature } = consolidationSnapshots()
+    let state = internals.createGroup(internals.defaultState(), 'g-repo', 'Repo work')
+    state = internals.assignProject(state, feature, 'g-repo')
+
+    const view = internals.buildView({ workspaceSnapshot, sessionSnapshot, repoMap, state })
+    expect(view.groups[0]?.projects.map((entry) => entry.key)).toEqual([main])
+    expect(project(view, main).groupId).toBe('g-repo')
+
+    const moved = internals.moveProjectInOrder(
+      state,
+      main,
+      'g-repo',
+      [],
+      null,
+      'after',
+      project(view, main).memberPaths,
+    )
+    expect(moved.assignments[main]).toBe('g-repo')
+    expect(moved.assignments[feature]).toBeUndefined()
+  })
+
+  it('falls back to Orca workspace folders when the host resolver is unavailable', () => {
+    const client = loadClient()
+    const internals = client.__internals
+    const base = '/Users/me/orca/workspaces/msinsight'
+    const first = `${base}/2.0-review`
+    const second = `${base}/rebase-2.0`
+    const workspaceSnapshot: WorkspaceSnapshot = {
+      items: [
+        workspace('w-first', first, ['s-first']),
+        workspace('w-second', second, ['s-second']),
+      ],
+      archivedSessionIds: [],
+      pinnedSessionIds: [],
+      phase: 'ready',
+      state: 'idle',
+      error: null,
+    }
+    const sessionSnapshot: SessionSnapshot = {
+      ids: ['s-first', 's-second'],
+      byId: {
+        's-first': summary('s-first', 'First', NOW - 1000, first),
+        's-second': summary('s-second', 'Second', NOW - 500, second),
+      },
+    }
+    const view = internals.buildView({
+      workspaceSnapshot,
+      sessionSnapshot,
+      state: internals.defaultState(),
+    })
+
+    expect(view.projects).toHaveLength(1)
+    expect(view.projects[0]?.key).toBe(`orca:${base}`)
+    expect(view.projects[0]?.title).toBe('msinsight')
+    expect(view.projects[0]?.worktrees.map((entry) => entry.label)).toEqual([
+      '2.0-review',
+      'rebase-2.0',
+    ])
+
+    const firstWorkspace = workspaceSnapshot.items[0]
+    const firstSession = sessionSnapshot.byId['s-first']
+    if (firstWorkspace === undefined || firstSession === undefined) {
+      throw new Error('first Orca workspace fixture missing')
+    }
+    const lone = internals.buildView({
+      workspaceSnapshot: { ...workspaceSnapshot, items: [firstWorkspace] },
+      sessionSnapshot: { ids: ['s-first'], byId: { 's-first': firstSession } },
+      state: internals.defaultState(),
+    })
+    expect(lone.projects[0]?.title).toBe('msinsight')
+  })
+
+  it('applies a custom project name and persists it safely', () => {
+    const client = loadClient()
+    const internals = client.__internals
+    const { workspaceSnapshot, sessionSnapshot, repoMap, main } = consolidationSnapshots()
+    const renamed = internals.renameProject(internals.defaultState(), main, '  Platform  ')
+    const view = internals.buildView({
+      workspaceSnapshot,
+      sessionSnapshot,
+      repoMap,
+      state: renamed,
+    })
+    expect(project(view, main).title).toBe('Platform')
+
+    const sanitized = internals.sanitizeState({
+      version: 1,
+      projectNames: { [main]: '  Platform  ', '/projects/two': 42, '/empty': '   ' },
+    })
+    expect(sanitized.projectNames).toEqual({ [main]: 'Platform' })
+  })
+
   it('explains ancestor paths without treating a sibling prefix as a child', () => {
     const client = loadClient()
     const internals = client.__internals
@@ -625,5 +832,109 @@ describe('orca view model', () => {
     expect(internals.isAncestor('/projects/one', '/projects/one-extra')).toBe(false)
     expect(internals.normalizePath('/projects/one/')).toBe('/projects/one')
     expect(internals.normalizePath('C:\\projects\\one\\')).toBe('C:/projects/one')
+  })
+})
+
+describe('repository resolution', () => {
+  it('maps a main checkout and linked worktrees to one repository', async () => {
+    const base = await realpath(await mkdtemp(join(tmpdir(), 'orca-repo-')))
+    try {
+      const main = join(base, 'repo')
+      const git = join(main, '.git')
+      await mkdir(join(git, 'worktrees', 'feature-a'), { recursive: true })
+      await writeFile(join(git, 'worktrees', 'feature-a', 'commondir'), '../..\n')
+
+      const linked = join(main, '.worktrees', 'feature-a')
+      await mkdir(linked, { recursive: true })
+      await writeFile(join(linked, '.git'), `gitdir: ${join(git, 'worktrees', 'feature-a')}\n`)
+
+      const orca = join(base, 'orca', 'workspaces', 'msinsight', '2.0-review')
+      await mkdir(join(git, 'worktrees', '2.0-review'), { recursive: true })
+      await writeFile(join(git, 'worktrees', '2.0-review', 'commondir'), '../..\n')
+      await mkdir(orca, { recursive: true })
+      await writeFile(join(orca, '.git'), `gitdir: ${join(git, 'worktrees', '2.0-review')}\n`)
+
+      const plain = join(base, 'plain')
+      await mkdir(plain)
+
+      const identities = await resolveRepositories([main, linked, orca, plain])
+      expect(identities.find((entry) => entry.path === main)).toMatchObject({
+        key: main,
+        root: main,
+        title: 'repo',
+        main: true,
+        worktree: 'main',
+      })
+      expect(identities.find((entry) => entry.path === linked)).toMatchObject({
+        key: main,
+        root: main,
+        main: false,
+        worktree: 'feature-a',
+      })
+      expect(identities.find((entry) => entry.path === orca)).toMatchObject({
+        key: main,
+        root: main,
+        main: false,
+        worktree: '2.0-review',
+      })
+      expect(identities.find((entry) => entry.path === plain)).toBeUndefined()
+    } finally {
+      await rm(base, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('repository fetch route', () => {
+  it('registers one authenticated route and validates its payload', async () => {
+    const routes: Array<{
+      path: string
+      fetch: (request: Request) => Promise<Response>
+    }> = []
+    const ctx = {
+      inject(_deps: string[], callback: (scope: unknown) => void) {
+        callback({
+          get: () => ({
+            fetch: {
+              register(route: { path: string; fetch: (request: Request) => Promise<Response> }) {
+                routes.push(route)
+                return async () => undefined
+              },
+            },
+          }),
+        })
+      },
+    }
+    apply(ctx as never)
+
+    expect(routes).toHaveLength(1)
+    expect(routes[0]?.path).toBe(REPOSITORY_ROUTE)
+
+    const invalid = await routes[0]?.fetch(
+      new Request('http://local/api/orca-projects/resolve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{',
+      }),
+    )
+    expect(invalid?.status).toBe(400)
+
+    const malformed = await routes[0]?.fetch(
+      new Request('http://local/api/orca-projects/resolve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ paths: [42] }),
+      }),
+    )
+    expect(malformed?.status).toBe(400)
+
+    const empty = await routes[0]?.fetch(
+      new Request('http://local/api/orca-projects/resolve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ paths: [] }),
+      }),
+    )
+    expect(empty?.status).toBe(200)
+    expect(await empty?.json()).toEqual({ repositories: [] })
   })
 })

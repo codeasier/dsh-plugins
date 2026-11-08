@@ -11,6 +11,7 @@ window.__ModuleLoader__.load({
     const FILTERS = ['hide', 'all', 'only']
     const EMPTY_STATUS = new Map()
     const SessionStatusContext = React.createContext(null)
+    const WorkspacePathContext = React.createContext(null)
 
     const en = {
       'title.projects': 'Projects',
@@ -59,15 +60,22 @@ window.__ModuleLoader__.load({
       'group.deleted': 'Group deleted',
       'group.moved': 'Moved “{name}” to {group}',
       'project.newSession': 'New session',
+      'project.newSessionIn': 'New session in {name}',
       'project.open': 'Open workspace',
       'project.move': 'Move to group',
-      'project.rename': 'Rename workspace',
-      'project.delete': 'Delete workspace',
+      'project.rename': 'Rename project',
+      'project.delete': 'Delete project',
       'project.deleteConfirm':
         'Remove “{name}” from the workspace list? Files and sessions are kept.',
-      'project.renamePlaceholder': 'Workspace name',
+      'project.deleteConfirmMany':
+        'Remove “{name}” and its {n} worktree workspaces from DSH? Files and sessions are kept.',
+      'project.renamePlaceholder': 'Project name',
       'project.ungrouped': 'Ungrouped',
       'project.sessions': '{n} sessions',
+      'project.worktrees': '{n} worktrees',
+      'project.worktreesTitle': 'Worktrees: {list}',
+      'project.worktreesSection': 'Worktrees',
+      'project.worktreeMain': 'main',
       'project.added': 'Workspace “{name}” added',
       'project.autoExpand': 'Show sessions',
       'session.open': 'Open',
@@ -161,14 +169,21 @@ window.__ModuleLoader__.load({
       'group.deleted': '分组已删除',
       'group.moved': '已将“{name}”移动到{group}',
       'project.newSession': '新建会话',
+      'project.newSessionIn': '在 {name} 中新建会话',
       'project.open': '打开工作区',
       'project.move': '移动到分组',
-      'project.rename': '重命名工作区',
-      'project.delete': '删除工作区',
+      'project.rename': '重命名项目',
+      'project.delete': '删除项目',
       'project.deleteConfirm': '将“{name}”从工作区列表移除？文件夹与会话会保留。',
-      'project.renamePlaceholder': '工作区名称',
+      'project.deleteConfirmMany':
+        '将“{name}”及其 {n} 个 worktree 工作区从 DSH 移除？文件夹与会话会保留。',
+      'project.renamePlaceholder': '项目名称',
       'project.ungrouped': '未分组',
       'project.sessions': '{n} 个会话',
+      'project.worktrees': '{n} 个工作树',
+      'project.worktreesTitle': '工作树：{list}',
+      'project.worktreesSection': '工作树',
+      'project.worktreeMain': 'main',
       'project.added': '已添加工作区“{name}”',
       'project.autoExpand': '展开会话',
       'session.open': '打开',
@@ -381,6 +396,13 @@ window.__ModuleLoader__.load({
       return { label: 'main', main: true }
     }
 
+    function repositoryWorktree(repo, path) {
+      if (!repo || repo.main === true) return 'main'
+      const derived = worktreeFromPath(path)
+      if (!derived.main) return derived.label
+      return repo.worktree || baseName(path) || 'main'
+    }
+
     function sessionWorktree(session, project) {
       if (!session || !project?.path) return null
       const root = normalizePath(project.path)
@@ -402,6 +424,81 @@ window.__ModuleLoader__.load({
       return { label: baseName(cwd), main: false }
     }
 
+    function repoFromPathFallback(value) {
+      const path = normalizePath(value)
+      const nested = path.match(/^(.*?)\/(?:\.worktrees?|worktrees)\/([^/]+)(?:\/|$)/i)
+      if (nested?.[1] && nested[2]) {
+        const root = normalizePath(nested[1])
+        return {
+          key: root,
+          root,
+          title: baseName(root),
+          main: false,
+          worktree: nested[2],
+        }
+      }
+      const orca = path.match(/^(.*\/orca\/workspaces\/([^/]+))\/[^/]+(?:\/|$)/i)
+      if (orca?.[1] && orca[2]) {
+        const root = normalizePath(orca[1])
+        return {
+          key: `orca:${root}`,
+          root,
+          title: orca[2],
+          main: false,
+          worktree: baseName(path),
+        }
+      }
+      return null
+    }
+
+    function workspaceRepo(workspace, repoMap) {
+      const path = normalizePath(workspace?.path)
+      const entry = repoMap && typeof repoMap.get === 'function' ? repoMap.get(path) : undefined
+      if (entry && typeof entry.key === 'string' && entry.key) {
+        const key = normalizePath(entry.key)
+        const root = normalizePath(entry.root || entry.key)
+        return {
+          key,
+          root,
+          title: entry.title || baseName(root) || path,
+          main: entry.main === true,
+          worktree: repositoryWorktree(entry, path),
+        }
+      }
+      return (
+        repoFromPathFallback(path) || {
+          key: path,
+          root: path,
+          title: workspace?.title || baseName(path),
+          main: true,
+          worktree: worktreeFromPath(path).label,
+        }
+      )
+    }
+
+    function worktreeForSession(session, project, workspaceBySession) {
+      const workspacePath =
+        workspaceBySession && typeof workspaceBySession.get === 'function'
+          ? workspaceBySession.get(session.id)
+          : undefined
+      if (workspacePath) return sessionWorktree(session, { path: workspacePath })
+      if (project?.path) return sessionWorktree(session, project)
+      return session?.cwd ? worktreeFromPath(session.cwd) : null
+    }
+
+    async function fetchRepositories(paths, signal) {
+      const response = await fetch('/api/orca-projects/resolve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ paths }),
+        ...(signal === undefined ? {} : { signal }),
+      })
+      if (!response.ok) return null
+      const value = await response.json()
+      const repositories = value?.repositories
+      return Array.isArray(repositories) ? repositories : null
+    }
+
     function defaultState() {
       return {
         version: 1,
@@ -411,6 +508,7 @@ window.__ModuleLoader__.load({
         activeOnly: false,
         groups: [],
         assignments: {},
+        projectNames: {},
         projectOrder: {},
         sessionOrder: {},
         collapsed: {},
@@ -446,6 +544,18 @@ window.__ModuleLoader__.load({
         for (const [key, value] of Object.entries(raw.assignments)) {
           if (typeof key === 'string' && typeof value === 'string' && value)
             next.assignments[key] = value
+        }
+      }
+
+      if (raw.projectNames && typeof raw.projectNames === 'object') {
+        let count = 0
+        for (const [key, value] of Object.entries(raw.projectNames)) {
+          if (count >= 200) break
+          if (typeof key !== 'string' || typeof value !== 'string') continue
+          const name = value.trim()
+          if (!name || name.length > 80) continue
+          next.projectNames[key] = name
+          count += 1
         }
       }
 
@@ -492,8 +602,13 @@ window.__ModuleLoader__.load({
       return `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
     }
 
-    function withAssignments(state, path, groupId) {
+    function withAssignments(state, path, groupId, memberPaths) {
       const assignments = { ...(state.assignments || {}) }
+      if (Array.isArray(memberPaths)) {
+        for (const member of memberPaths) {
+          if (typeof member === 'string' && member !== path) delete assignments[member]
+        }
+      }
       if (groupId) assignments[path] = groupId
       else delete assignments[path]
       return assignments
@@ -501,6 +616,14 @@ window.__ModuleLoader__.load({
 
     function assignProject(state, path, groupId) {
       return { ...state, assignments: withAssignments(state, path, groupId) }
+    }
+
+    function renameProject(state, key, name) {
+      const projectNames = { ...(state.projectNames || {}) }
+      const trimmed = typeof name === 'string' ? name.trim() : ''
+      if (trimmed) projectNames[key] = trimmed
+      else delete projectNames[key]
+      return { ...state, projectNames }
     }
 
     function createGroup(state, id, name) {
@@ -531,7 +654,15 @@ window.__ModuleLoader__.load({
       }
     }
 
-    function moveProjectInOrder(state, path, groupId, orderedKeys, anchorKey, position) {
+    function moveProjectInOrder(
+      state,
+      path,
+      groupId,
+      orderedKeys,
+      anchorKey,
+      position,
+      memberPaths,
+    ) {
       const order = (Array.isArray(orderedKeys) ? orderedKeys : []).filter((key) => key !== path)
       let index = anchorKey ? order.indexOf(anchorKey) : -1
       if (index < 0) index = order.length
@@ -540,7 +671,7 @@ window.__ModuleLoader__.load({
       const orderKey = groupId || UNGROUPED
       return {
         ...state,
-        assignments: withAssignments(state, path, groupId),
+        assignments: withAssignments(state, path, groupId, memberPaths),
         projectOrder: { ...(state.projectOrder || {}), [orderKey]: order },
       }
     }
@@ -608,8 +739,29 @@ window.__ModuleLoader__.load({
       return String(left.displayTitle || '').localeCompare(String(right.displayTitle || ''))
     }
 
-    function sortSessions(list, state, projectKey) {
-      const order = state.orderBy === 'manual' ? state.sessionOrder[projectKey] || [] : null
+    function orderForProject(orderMap, projectKey, memberPaths) {
+      if (orderMap && Array.isArray(orderMap[projectKey])) return orderMap[projectKey]
+      for (const path of memberPaths || []) {
+        if (orderMap && Array.isArray(orderMap[path])) return orderMap[path]
+      }
+      return null
+    }
+
+    function orderIndexForProject(order, project) {
+      let index = order.indexOf(project.key)
+      if (index !== -1) return index
+      for (const path of project.memberPaths || []) {
+        index = order.indexOf(path)
+        if (index !== -1) return index
+      }
+      return -1
+    }
+
+    function sortSessions(list, state, projectKey, memberPaths) {
+      const order =
+        state.orderBy === 'manual'
+          ? orderForProject(state.sessionOrder, projectKey, memberPaths)
+          : null
       return list.slice().sort((left, right) => {
         if (order) {
           const li = order.indexOf(left.id)
@@ -638,8 +790,8 @@ window.__ModuleLoader__.load({
         state.orderBy === 'manual' ? state.projectOrder[orderKey || UNGROUPED] || [] : null
       list.sort((left, right) => {
         if (order) {
-          const li = order.indexOf(left.key)
-          const ri = order.indexOf(right.key)
+          const li = orderIndexForProject(order, left)
+          const ri = orderIndexForProject(order, right)
           if (li !== -1 || ri !== -1) {
             return (
               (li === -1 ? Number.MAX_SAFE_INTEGER : li) -
@@ -652,6 +804,17 @@ window.__ModuleLoader__.load({
         return String(left.title || '').localeCompare(String(right.title || ''))
       })
       return list
+    }
+
+    function assignmentForProject(state, project) {
+      const assignments =
+        state.assignments && typeof state.assignments === 'object' ? state.assignments : {}
+      const groupIds = new Set((Array.isArray(state.groups) ? state.groups : []).map((g) => g.id))
+      for (const candidate of [project.key, ...(project.memberPaths || [])]) {
+        const groupId = assignments[candidate]
+        if (typeof groupId === 'string' && groupIds.has(groupId)) return groupId
+      }
+      return null
     }
 
     function buildTree(projects) {
@@ -726,6 +889,10 @@ window.__ModuleLoader__.load({
       const items = Array.isArray(snapshot.items) ? snapshot.items : []
       const projects = []
       const accounted = new Set()
+      const workspaceBySession = new Map()
+      const consolidate = state.mode === 'orca'
+      const repoMap = input.repoMap
+      const groupsByKey = new Map()
 
       for (const workspace of items) {
         const sessions = []
@@ -738,16 +905,88 @@ window.__ModuleLoader__.load({
         }
         if (activeOnly && sessions.length === 0) continue
         const path = normalizePath(workspace.path)
-        const ordered = sortSessions(sessions, state, path)
+        const repo = consolidate
+          ? workspaceRepo(workspace, repoMap)
+          : {
+              key: path,
+              root: path,
+              title: workspace.title || baseName(path),
+              main: true,
+              worktree: worktreeFromPath(path).label,
+            }
+        let group = groupsByKey.get(repo.key)
+        if (!group) {
+          group = {
+            key: repo.key,
+            root: repo.root,
+            title: repo.title,
+            mainWorkspace: null,
+            members: [],
+          }
+          groupsByKey.set(repo.key, group)
+        }
+        group.members.push({ workspace, path, repo, sessions })
+        if (!group.mainWorkspace && (repo.main === true || path === normalizePath(repo.root))) {
+          group.mainWorkspace = workspace
+        }
+        for (const session of sessions) {
+          if (!workspaceBySession.has(session.id)) workspaceBySession.set(session.id, path)
+        }
+      }
+
+      for (const group of groupsByKey.values()) {
+        const all = []
+        const seen = new Set()
+        for (const member of group.members) {
+          for (const session of member.sessions) {
+            if (seen.has(session.id)) continue
+            seen.add(session.id)
+            all.push(session)
+          }
+        }
+        const projectKey = normalizePath(group.key)
+        const memberPaths = group.members.map((member) => member.path)
+        const ordered = sortSessions(all, state, projectKey, memberPaths)
+        const mainWorkspace = group.mainWorkspace
+        const primary = mainWorkspace || group.members[0]?.workspace || null
+        const customTitle =
+          state.projectNames && typeof state.projectNames === 'object'
+            ? state.projectNames[projectKey]
+            : undefined
+        const title =
+          (typeof customTitle === 'string' && customTitle) ||
+          mainWorkspace?.title ||
+          group.title ||
+          group.members[0]?.workspace?.title ||
+          baseName(projectKey)
+        const worktrees = group.members
+          .map((member) => ({
+            workspaceId: member.workspace.workspaceId,
+            path: member.path,
+            label: repositoryWorktree(member.repo, member.path),
+            main: member.repo.main === true || member.path === normalizePath(member.repo.root),
+            title: member.workspace.title || baseName(member.path),
+            sessionCount: member.sessions.length,
+          }))
+          .sort((left, right) => {
+            if (left.main !== right.main) return left.main ? -1 : 1
+            return String(left.label).localeCompare(String(right.label))
+          })
         const updatedAt =
           ordered.reduce((value, session) => Math.max(value, Number(session.updatedAt) || 0), 0) ||
-          Date.parse(workspace.updatedAt || '') ||
-          0
+          group.members.reduce(
+            (value, member) => Math.max(value, Date.parse(member.workspace.updatedAt || '') || 0),
+            0,
+          )
         projects.push({
-          key: path,
-          workspaceId: workspace.workspaceId,
-          title: workspace.title || baseName(workspace.path),
-          path: workspace.path,
+          key: projectKey,
+          workspaceId: primary ? primary.workspaceId : null,
+          workspaceIds: group.members.map((member) => member.workspace.workspaceId),
+          memberPaths,
+          worktrees,
+          groupId: null,
+          title,
+          path: group.root || primary?.path || null,
           sessions: ordered,
           pinnedFirst: pinFirst(ordered, pinned),
           updatedAt,
@@ -770,6 +1009,10 @@ window.__ModuleLoader__.load({
         projects.push({
           key: UNGROUPED,
           workspaceId: null,
+          workspaceIds: [],
+          memberPaths: [],
+          worktrees: [],
+          groupId: null,
           title: null,
           path: null,
           sessions: ordered,
@@ -802,12 +1045,11 @@ window.__ModuleLoader__.load({
       const groups = []
       const configured = Array.isArray(state.groups) ? state.groups : []
       const groupIds = new Set(configured.map((group) => group.id))
-      const assignments =
-        state.assignments && typeof state.assignments === 'object' ? state.assignments : {}
       const assigned = new Map()
       for (const project of projects) {
         if (project.isUngrouped) continue
-        const groupId = assignments[project.key]
+        const groupId = assignmentForProject(state, project)
+        project.groupId = groupId
         if (typeof groupId === 'string' && groupIds.has(groupId)) {
           if (!assigned.has(groupId)) assigned.set(groupId, [])
           assigned.get(groupId).push(project)
@@ -821,8 +1063,7 @@ window.__ModuleLoader__.load({
 
       const ungroupedProjects = projects.filter((project) => {
         if (project.isUngrouped) return false
-        const groupId = assignments[project.key]
-        return !(typeof groupId === 'string' && groupIds.has(groupId))
+        return !project.groupId
       })
       sortProjects(ungroupedProjects, state, UNGROUPED)
 
@@ -847,6 +1088,7 @@ window.__ModuleLoader__.load({
         flat,
         searchResults: trimmed ? searchSessions(trimmed, projects, pinned) : [],
         projectBySession,
+        workspaceBySession,
         counts: {
           projects: projects.filter((project) => !project.isUngrouped).length,
           sessions: projects.reduce((value, project) => value + project.sessions.length, 0),
@@ -980,9 +1222,10 @@ window.__ModuleLoader__.load({
         pinned,
         archived,
         current,
-        worktree,
       } = props
       const statusMap = React.useContext(SessionStatusContext)
+      const workspaceBySession = React.useContext(WorkspacePathContext)
+      const worktree = worktreeForSession(session, project, workspaceBySession)
       const liveStatus =
         statusMap && typeof statusMap.get === 'function' ? statusMap.get(session.id) : undefined
       const running =
@@ -1146,6 +1389,22 @@ window.__ModuleLoader__.load({
       const hiddenSessions = sessions.length - visibleSessions.length
       const title = project.title || t('project.ungrouped')
       const canManage = project.workspaceId !== null && project.workspaceId !== undefined
+      const worktrees = Array.isArray(project.worktrees) ? project.worktrees : []
+      const worktreeBadge =
+        worktrees.length > 1
+          ? h(
+              'span',
+              {
+                className: 'orca-project-worktrees',
+                title: t('project.worktreesTitle', {
+                  list: worktrees.map((entry) => entry.label).join(', '),
+                }),
+                'aria-label': t('project.worktrees', { n: worktrees.length }),
+              },
+              h(Icon, { name: 'layers', size: 9 }),
+              String(worktrees.length),
+            )
+          : null
 
       const head = h(
         'div',
@@ -1176,6 +1435,7 @@ window.__ModuleLoader__.load({
           className: 'orca-project-folder',
         }),
         h('span', { className: 'orca-project-title', title: project.path || title }, title),
+        worktreeBadge,
         h(CountBadge, null, String(project.sessions.length)),
       )
 
@@ -1221,7 +1481,6 @@ window.__ModuleLoader__.load({
                       current: currentId === session.id,
                       currentId,
                       guided,
-                      worktree: sessionWorktree(session, project),
                       drag:
                         variant === 'orca' && drag
                           ? {
@@ -1301,7 +1560,6 @@ window.__ModuleLoader__.load({
                       archived: archivedSet.has(entry.session.id),
                       current: currentId === entry.session.id,
                       currentId,
-                      worktree: sessionWorktree(entry.session, entry.project),
                     }),
                   )
                 : h('div', { className: 'orca-empty-inline' }, emptyHint || t('pinned.empty')),
@@ -1685,7 +1943,6 @@ window.__ModuleLoader__.load({
             archived: archivedSet.has(entry.session.id),
             current: currentId === entry.session.id,
             currentId,
-            worktree: sessionWorktree(entry.session, entry.project),
           }),
         ),
         view.flat.length === 0
@@ -1717,7 +1974,6 @@ window.__ModuleLoader__.load({
             archived: archivedSet.has(entry.session.id),
             current: currentId === entry.session.id,
             currentId,
-            worktree: sessionWorktree(entry.session, entry.project),
           }),
         ),
         view.searchResults.length === 0
@@ -2001,12 +2257,12 @@ window.__ModuleLoader__.load({
         sessionSource,
         sessionStatusSource,
         layoutSource,
+        resolveRepositories,
         openSession: openSessionService,
         startSession: startSessionService,
         openWorkspace: openWorkspaceService,
         pickDirectory,
         createWorkspace,
-        renameWorkspace,
         deleteWorkspace,
         pinSession: pinSessionService,
         unpinSession: unpinSessionService,
@@ -2020,6 +2276,7 @@ window.__ModuleLoader__.load({
       const [menu, setMenu] = React.useState(null)
       const [dialog, setDialog] = React.useState(null)
       const [toast, setToast] = React.useState(null)
+      const [repoMap, setRepoMap] = React.useState(null)
       const toastTimer = React.useRef(undefined)
 
       const workspaceSnapshot = useSource(workspaceSource)
@@ -2029,6 +2286,51 @@ window.__ModuleLoader__.load({
       const workspaceState = workspaceSnapshot || EMPTY_WORKSPACES
       const sessionState = sessionSnapshot || EMPTY_SESSIONS
       const statusMap = sessionStatusSnapshot || EMPTY_STATUS
+      const workspacePathsKey = React.useMemo(
+        () =>
+          (workspaceState.items || [])
+            .map((workspace) => normalizePath(workspace.path))
+            .filter(Boolean)
+            .sort()
+            .join('\n'),
+        [workspaceState],
+      )
+
+      React.useEffect(() => {
+        if (typeof resolveRepositories !== 'function') {
+          setRepoMap(null)
+          return undefined
+        }
+        const paths = workspacePathsKey ? workspacePathsKey.split('\n').filter(Boolean) : []
+        if (paths.length === 0) {
+          setRepoMap(null)
+          return undefined
+        }
+        const controller = new AbortController()
+        let cancelled = false
+        resolveRepositories(paths, controller.signal)
+          .then((repositories) => {
+            if (cancelled) return
+            if (!Array.isArray(repositories)) {
+              setRepoMap(null)
+              return
+            }
+            const next = new Map()
+            for (const repository of repositories) {
+              if (!repository || typeof repository.key !== 'string') continue
+              next.set(normalizePath(repository.path), repository)
+            }
+            setRepoMap(next)
+          })
+          .catch((error) => {
+            if (cancelled || error?.name === 'AbortError') return
+            setRepoMap(null)
+          })
+        return () => {
+          cancelled = true
+          controller.abort()
+        }
+      }, [workspacePathsKey, resolveRepositories])
 
       React.useEffect(() => {
         saveState(state)
@@ -2070,8 +2372,9 @@ window.__ModuleLoader__.load({
             state,
             currentId,
             query,
+            repoMap,
           }),
-        [workspaceState, sessionState, statusMap, state, currentId, query],
+        [workspaceState, sessionState, statusMap, state, currentId, query, repoMap],
       )
       const archivedSet = React.useMemo(() => archivedSetOf(workspaceState), [workspaceState])
       const pinnedSet = React.useMemo(
@@ -2141,7 +2444,7 @@ window.__ModuleLoader__.load({
             const collapsed = isCollapsed(prev, key, project.key === currentProjectKey)
             let groupCollapsed = false
             if (prev.mode === 'orca' && prev.groups.length > 0) {
-              const assigned = prev.assignments ? prev.assignments[project.key] : null
+              const assigned = assignmentForProject(prev, project)
               const valid = assigned && prev.groups.some((group) => group.id === assigned)
               groupCollapsed = isCollapsed(prev, `g:${valid ? assigned : UNGROUPED}`, true)
             }
@@ -2162,7 +2465,7 @@ window.__ModuleLoader__.load({
         setState((prev) => {
           const collapsed = { ...(prev.collapsed || {}) }
           if (prev.mode === 'orca' && Array.isArray(prev.groups) && prev.groups.length > 0) {
-            const assigned = prev.assignments ? prev.assignments[project.key] : null
+            const assigned = assignmentForProject(prev, project)
             const valid = assigned && prev.groups.some((group) => group.id === assigned)
             collapsed[`g:${valid ? assigned : UNGROUPED}`] = false
           }
@@ -2244,6 +2547,10 @@ window.__ModuleLoader__.load({
         if (!project.workspaceId) return
         startSessionService(project.workspaceId)
       }
+      const startSessionIn = (workspaceId) => {
+        if (!workspaceId) return
+        startSessionService(workspaceId)
+      }
       const openWorkspace = (project) => {
         if (!project.workspaceId) return
         openWorkspaceService(project.workspaceId)
@@ -2273,7 +2580,10 @@ window.__ModuleLoader__.load({
         const id = nextGroupId()
         setState((prev) => {
           let next = createGroup(prev, id, name)
-          if (assignPath) next = moveProjectInOrder(next, assignPath, id, [], null, 'after')
+          if (assignPath) {
+            const project = view.projects.find((entry) => entry.key === assignPath)
+            next = moveProjectInOrder(next, assignPath, id, [], null, 'after', project?.memberPaths)
+          }
           return next
         })
         showToast(t('group.created', { name }))
@@ -2288,10 +2598,18 @@ window.__ModuleLoader__.load({
       const moveProject = (path, groupId, orderedKeys, anchorKey, position) => {
         if (anchorKey && path === anchorKey) return
         const project = view.projects.find((entry) => entry.key === path)
-        const previousGroup = state.assignments ? state.assignments[path] || null : null
+        const previousGroup = project ? project.groupId : null
         const nextGroup = groupId || null
         setState((prev) =>
-          moveProjectInOrder(prev, path, groupId, orderedKeys, anchorKey, position),
+          moveProjectInOrder(
+            prev,
+            path,
+            groupId,
+            orderedKeys,
+            anchorKey,
+            position,
+            project?.memberPaths,
+          ),
         )
         if (project && previousGroup !== nextGroup) {
           const groupName = groupId
@@ -2438,7 +2756,7 @@ window.__ModuleLoader__.load({
       }
 
       const openMoveMenu = (rect, project) => {
-        const current = state.assignments?.[project.key]
+        const current = project.groupId
         const items = [
           { section: t('group.drop') },
           {
@@ -2463,8 +2781,27 @@ window.__ModuleLoader__.load({
 
       const openProjectMenu = (event, project) => {
         const rect = event.currentTarget.getBoundingClientRect()
-        openMenuAtRect(rect, [
-          { label: t('project.newSession'), icon: 'chat', onSelect: () => startSession(project) },
+        const worktrees = Array.isArray(project.worktrees) ? project.worktrees : []
+        const items = []
+        if (worktrees.length > 1) {
+          items.push({ section: t('project.worktreesSection') })
+          for (const worktree of worktrees) {
+            items.push({
+              label: t('project.newSessionIn', {
+                name: worktree.label === 'main' ? t('project.worktreeMain') : worktree.label,
+              }),
+              icon: 'chat',
+              onSelect: () => startSessionIn(worktree.workspaceId),
+            })
+          }
+        } else {
+          items.push({
+            label: t('project.newSession'),
+            icon: 'chat',
+            onSelect: () => startSession(project),
+          })
+        }
+        items.push(
           { label: t('project.open'), icon: 'open', onSelect: () => openWorkspace(project) },
           { divider: true },
           {
@@ -2483,7 +2820,8 @@ window.__ModuleLoader__.load({
             danger: true,
             onSelect: () => openDeleteProjectDialog(project),
           },
-        ])
+        )
+        openMenuAtRect(rect, items)
       }
 
       const openGroupMenu = (event, group) => {
@@ -2632,7 +2970,7 @@ window.__ModuleLoader__.load({
         setDialog({
           key: `d${Date.now()}`,
           kind: 'project-rename',
-          workspaceId: project.workspaceId,
+          projectKey: project.key,
           title: t('project.rename'),
           input: true,
           value: project.title || '',
@@ -2641,14 +2979,25 @@ window.__ModuleLoader__.load({
         })
       }
       const openDeleteProjectDialog = (project) => {
+        const workspaceIds = Array.isArray(project.workspaceIds)
+          ? project.workspaceIds.filter(Boolean)
+          : project.workspaceId
+            ? [project.workspaceId]
+            : []
+        const many = workspaceIds.length > 1
         setDialog({
           key: `d${Date.now()}`,
           kind: 'project-delete',
-          workspaceId: project.workspaceId,
+          workspaceIds,
           title: t('project.delete'),
-          description: t('project.deleteConfirm', {
-            name: project.title || t('project.ungrouped'),
-          }),
+          description: many
+            ? t('project.deleteConfirmMany', {
+                name: project.title || t('project.ungrouped'),
+                n: workspaceIds.length,
+              })
+            : t('project.deleteConfirm', {
+                name: project.title || t('project.ungrouped'),
+              }),
           confirm: t('dialog.delete'),
           danger: true,
         })
@@ -2665,12 +3014,15 @@ window.__ModuleLoader__.load({
         } else if (current.kind === 'group-delete') {
           deleteGroupNow(current.id)
         } else if (current.kind === 'project-rename') {
-          Promise.resolve(renameWorkspace(current.workspaceId, value)).catch((error) =>
-            fail(error, 'toast.projectFailed'),
-          )
+          setState((prev) => renameProject(prev, current.projectKey, value))
         } else if (current.kind === 'project-delete') {
-          Promise.resolve(deleteWorkspace(current.workspaceId)).catch((error) =>
-            fail(error, 'toast.projectFailed'),
+          const workspaceIds = Array.isArray(current.workspaceIds)
+            ? current.workspaceIds
+            : current.workspaceId
+              ? [current.workspaceId]
+              : []
+          Promise.all(workspaceIds.map((workspaceId) => deleteWorkspace(workspaceId))).catch(
+            (error) => fail(error, 'toast.projectFailed'),
           )
         } else if (current.kind === 'archive-confirm') {
           archiveById(current.sessionId, current.sessionTitle, true)
@@ -2784,7 +3136,11 @@ window.__ModuleLoader__.load({
         toast ? h(ToastLayer, { toast }) : null,
       )
 
-      return h(SessionStatusContext.Provider, { value: statusMap }, content)
+      return h(
+        SessionStatusContext.Provider,
+        { value: statusMap },
+        h(WorkspacePathContext.Provider, { value: view.workspaceBySession }, content),
+      )
     }
 
     const ORCA_CSS = `
@@ -2930,6 +3286,21 @@ window.__ModuleLoader__.load({
         font-weight: 500;
         line-height: 1;
         flex: none;
+      }
+      .orca-project-worktrees {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        flex: none;
+        height: 16px;
+        padding: 0 4px;
+        border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 24%, transparent);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 7%, transparent);
+        color: var(--dsw-alias-brand-primary);
+        font-size: 10px;
+        font-weight: 500;
+        line-height: 1;
       }
       .orca-chevron {
         display: inline-flex;
@@ -3624,6 +3995,7 @@ window.__ModuleLoader__.load({
       'uiSession',
       'uiWorkspace',
       'layout',
+      'connection',
     ]
 
     function apply(ctx) {
@@ -3653,7 +4025,6 @@ window.__ModuleLoader__.load({
             subscribe: (listener) => layout.panelInfo.subscribe(listener),
           }
         : undefined
-
       ctx.effect(() => ctx.locale.register(NS, { en, zh }), 'orca-projects: dictionaries')
       ctx.effect(() => installStyles(), 'orca-projects: styles')
 
@@ -3668,12 +4039,12 @@ window.__ModuleLoader__.load({
               sessionSource,
               sessionStatusSource,
               layoutSource,
+              resolveRepositories: fetchRepositories,
               openSession: (sessionId) => uiWorkspace.openSession(sessionId),
               startSession: (workspaceId) => uiWorkspace.startSession(workspaceId),
               openWorkspace: (workspaceId) => uiWorkspace.openWorkspace(workspaceId),
               pickDirectory: () => uiWorkspace.pickDirectory(),
               createWorkspace: (path) => workspaces.create({ path }),
-              renameWorkspace: (workspaceId, title) => workspaces.rename(workspaceId, title),
               deleteWorkspace: (workspaceId) => workspaces.delete(workspaceId),
               pinSession: (sessionId) => workspaces.pinSession(sessionId),
               unpinSession: (sessionId) => workspaces.unpinSession(sessionId),
@@ -3691,6 +4062,7 @@ window.__ModuleLoader__.load({
       sanitizeState,
       buildView,
       assignProject,
+      renameProject,
       createGroup,
       deleteGroup,
       renameGroup,
@@ -3701,6 +4073,10 @@ window.__ModuleLoader__.load({
       isAncestor,
       worktreeFromPath,
       sessionWorktree,
+      workspaceRepo,
+      repoFromPathFallback,
+      worktreeForSession,
+      repositoryWorktree,
       isActiveSession,
       findCurrentId,
       sessionLabel,

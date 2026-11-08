@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Orca 项目侧栏",
-    "description": "以项目为中心的侧栏，支持自定义分组与置顶会话架。"
+    "description": "以项目为中心的侧栏，支持按仓库收拢 worktree、自定义分组与置顶会话架。"
   }
 }

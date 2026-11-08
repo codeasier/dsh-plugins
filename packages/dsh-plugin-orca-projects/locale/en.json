@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Orca Projects",
-    "description": "Project-first sidebar with custom groups and a pinned session shelf."
+    "description": "Project-first sidebar with repository-aware worktree grouping, custom groups, and a pinned session shelf."
   }
 }

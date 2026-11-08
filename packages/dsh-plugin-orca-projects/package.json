@@ -1,7 +1,7 @@
 {
   "name": "@codeasier/dsh-plugin-orca-projects",
   "version": "0.1.0",
-  "description": "Orca-like project sidebar for the DSH Web and Desktop client: custom project groups and a pinned session shelf.",
+  "description": "Orca-like project sidebar for the DSH Web and Desktop client: repository-aware worktree grouping, custom project groups, and a pinned session shelf.",
   "keywords": [
     "dsh-plugin",
     "deepseek-harness",

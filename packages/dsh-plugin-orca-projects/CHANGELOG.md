@@ -16,3 +16,9 @@
   finished-unviewed, gray idle).
 - Add an Orca-like **Active sessions only** filter that hides non-active
   sessions and projects and restores them from its empty state.
+- Consolidate a Git repository's main checkout and linked worktrees into one
+  project. A small Host half reads `.git` and `commondir` behind an authenticated
+  fetch route, so worktrees in arbitrary directories (including Orca's
+  `~/orca/workspaces/<project>/<name>`) join their repository. Project rows show
+  a worktree count, the project menu starts a session in a chosen worktree, and
+  project labels, groups, and ordering operate on the consolidated row.
