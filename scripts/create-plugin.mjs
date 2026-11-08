@@ -40,7 +40,7 @@ Options:
   -h, --help           show this help
 
 The command refuses to overwrite an existing package. It updates the generated
-catalog in README.md and docs/plugins.md.`
+catalog in the root README files and docs/plugins.md.`
 
 const TEMPLATE = join(ROOT, 'templates', 'plugin')
 const ROOT_LICENSE = join(ROOT, 'LICENSE')
@@ -311,7 +311,7 @@ function updateRegistry() {
     try {
       const after = replaceRegistryRegion(
         before,
-        renderPluginTable(packages, { linkBase: target.linkBase }),
+        renderPluginTable(packages, { linkBase: target.linkBase, locale: target.locale }),
         target.file,
       )
       if (after !== before) writeFileSync(path, after)

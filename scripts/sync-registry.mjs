@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Synchronize the generated plugin catalog in README.md and docs/plugins.md.
+ * Synchronize the generated plugin catalog in the root README files and
+ * docs/plugins.md.
  *
  * Modes:
  *   node scripts/sync-registry.mjs          rewrite the catalog
@@ -33,7 +34,7 @@ for (const target of REGISTRY_TARGETS) {
   const before = readFileSync(path, 'utf8')
   const after = replaceRegistryRegion(
     before,
-    renderPluginTable(packages, { linkBase: target.linkBase }),
+    renderPluginTable(packages, { linkBase: target.linkBase, locale: target.locale }),
     target.file,
   )
 

@@ -25,8 +25,9 @@ bundled with the app. See [Install on DSH CLI](install/dsh.md) and
 pnpm new my-plugin --description "What a user gains from this plugin."
 ```
 
-The generator updates this page and the root README. Do not edit the generated
-table by hand; run `pnpm sync:registry`.
+The generator updates this page, `README.md`, and `README.zh.md`. The Chinese
+catalog uses each plugin's `locale/zh.json` description. Do not edit the
+generated tables by hand; run `pnpm sync:registry`.
 
 ## Package kinds
 

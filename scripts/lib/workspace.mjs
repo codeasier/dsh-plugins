@@ -53,7 +53,8 @@ export function readPackage(dir) {
   const manifest = readJson(join(dir, 'package.json'))
   const bundlePatch = manifest.dsh?.bundle?.patch
   const patchFiles = Array.isArray(bundlePatch) ? bundlePatch : bundlePatch ? [bundlePatch] : []
-  const locale = readLocale(join(dir, 'locale', 'en.json'))
+  const localeEn = readLocale(join(dir, 'locale', 'en.json'))
+  const localeZh = readLocale(join(dir, 'locale', 'zh.json'))
   return {
     dir,
     relDir: relPath(dir),
@@ -61,11 +62,12 @@ export function readPackage(dir) {
     name: manifest.name,
     version: manifest.version,
     description: manifest.description ?? '',
+    descriptionZh: localeZh?.meta?.description,
     isPlugin: patchFiles.length > 0,
     patchFiles,
     rows: patchFiles.flatMap((file) => readPatchRows(join(dir, file))),
-    title: locale?.meta?.title,
-    localizedDescription: locale?.meta?.description,
+    title: localeEn?.meta?.title,
+    localizedDescription: localeEn?.meta?.description,
   }
 }
 
@@ -126,20 +128,24 @@ export function escapeCell(value) {
 /**
  * Render the plugin catalog table.
  * @param {ReturnType<typeof readPackages>} packages
- * @param {{ linkBase: string }} options - prefix for package source links.
+ * @param {{ linkBase: string, locale?: 'en' | 'zh' }} options - source-link prefix and table language.
  */
-export function renderPluginTable(packages, { linkBase }) {
+export function renderPluginTable(packages, { linkBase, locale = 'en' }) {
   const plugins = packages
     .filter((pkg) => pkg.isPlugin)
     .sort((a, b) => a.name.localeCompare(b.name))
 
+  const headers =
+    locale === 'zh'
+      ? ['| 插件 | 功能 | 版本 |', '|---|---|---|']
+      : ['| Plugin | What it adds | Version |', '|---|---|---|']
+
   const lines = [
-    '| Plugin | What it adds | Version |',
-    '|---|---|---|',
-    ...plugins.map(
-      (pkg) =>
-        `| [\`${pkg.name}\`](${linkBase}${pkg.relDir}) | ${escapeCell(pkg.description)} | \`${pkg.version}\` |`,
-    ),
+    ...headers,
+    ...plugins.map((pkg) => {
+      const description = locale === 'zh' ? (pkg.descriptionZh ?? pkg.description) : pkg.description
+      return `| [\`${pkg.name}\`](${linkBase}${pkg.relDir}) | ${escapeCell(description)} | \`${pkg.version}\` |`
+    }),
   ]
   return lines.join('\n')
 }
@@ -158,8 +164,9 @@ export function replaceRegistryRegion(text, content, file = 'document') {
 
 /** Targets that contain a generated plugin catalog. */
 export const REGISTRY_TARGETS = [
-  { file: 'README.md', linkBase: './' },
-  { file: 'docs/plugins.md', linkBase: '../' },
+  { file: 'README.md', linkBase: './', locale: 'en' },
+  { file: 'README.zh.md', linkBase: './', locale: 'zh' },
+  { file: 'docs/plugins.md', linkBase: '../', locale: 'en' },
 ]
 
 /** Run a command with inherited output and a helpful failure. */
