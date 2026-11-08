@@ -398,16 +398,27 @@ window.__ModuleLoader__.load({
 
     function repositoryWorktree(repo, path) {
       if (!repo || repo.main === true) return 'main'
+      if (repo.worktree) return repo.worktree
       const derived = worktreeFromPath(path)
       if (!derived.main) return derived.label
-      return repo.worktree || baseName(path) || 'main'
+      return baseName(path) || 'main'
     }
 
     function sessionWorktree(session, project) {
       if (!session || !project?.path) return null
       const root = normalizePath(project.path)
-      const rootWorktree = worktreeFromPath(root)
       const cwd = session.cwd ? normalizePath(session.cwd) : null
+      const worktrees = Array.isArray(project.worktrees) ? project.worktrees : []
+      const checkout =
+        worktrees
+          .filter(
+            (entry) => cwd && (normalizePath(entry.path) === cwd || isAncestor(entry.path, cwd)),
+          )
+          .sort(
+            (left, right) => normalizePath(right.path).length - normalizePath(left.path).length,
+          )[0] || worktrees.find((entry) => normalizePath(entry.path) === root)
+      if (checkout) return { label: checkout.label, main: checkout.main === true }
+      const rootWorktree = worktreeFromPath(root)
       if (!cwd || cwd === root) return rootWorktree
       if (isAncestor(root, cwd)) {
         const relative = cwd.slice(root.length + 1)
@@ -416,8 +427,7 @@ window.__ModuleLoader__.load({
           /^(?:\.worktrees?|worktrees?)$/i.test(segment),
         )
         if (index >= 0 && segments[index + 1]) return { label: segments[index + 1], main: false }
-        if (!rootWorktree.main) return rootWorktree
-        return { label: segments[0] || rootWorktree.label, main: false }
+        return rootWorktree
       }
       const cwdWorktree = worktreeFromPath(cwd)
       if (!cwdWorktree.main) return cwdWorktree
@@ -454,7 +464,13 @@ window.__ModuleLoader__.load({
     function workspaceRepo(workspace, repoMap) {
       const path = normalizePath(workspace?.path)
       const entry = repoMap && typeof repoMap.get === 'function' ? repoMap.get(path) : undefined
-      if (entry && typeof entry.key === 'string' && entry.key) {
+      if (
+        entry &&
+        entry.status !== 'missing' &&
+        entry.status !== 'error' &&
+        typeof entry.key === 'string' &&
+        entry.key
+      ) {
         const key = normalizePath(entry.key)
         const root = normalizePath(entry.root || entry.key)
         return {
@@ -481,13 +497,19 @@ window.__ModuleLoader__.load({
         workspaceBySession && typeof workspaceBySession.get === 'function'
           ? workspaceBySession.get(session.id)
           : undefined
-      if (workspacePath) return sessionWorktree(session, { path: workspacePath })
+      if (workspacePath) {
+        const checkout = project?.worktrees?.find(
+          (entry) => normalizePath(entry.path) === normalizePath(workspacePath),
+        )
+        if (checkout) return { label: checkout.label, main: checkout.main === true }
+        return sessionWorktree(session, { path: workspacePath, worktrees: project?.worktrees })
+      }
       if (project?.path) return sessionWorktree(session, project)
       return session?.cwd ? worktreeFromPath(session.cwd) : null
     }
 
     async function fetchRepositories(paths, signal) {
-      const response = await fetch('/api/orca-projects/resolve', {
+      const response = await fetch('api/orca-projects/resolve', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ paths }),
@@ -825,6 +847,7 @@ window.__ModuleLoader__.load({
         let parent = null
         for (const candidate of projects) {
           if (candidate === project) continue
+          if (!candidate.path || !project.path) continue
           if (!isAncestor(candidate.path, project.path)) continue
           if (!parent || normalizePath(candidate.path).length > normalizePath(parent.path).length)
             parent = candidate
@@ -903,27 +926,19 @@ window.__ModuleLoader__.load({
           if (activeOnly && !isActiveSession(summary, statusMap)) continue
           sessions.push(summary)
         }
-        if (activeOnly && sessions.length === 0) continue
         const path = normalizePath(workspace.path)
-        const repo = consolidate
-          ? workspaceRepo(workspace, repoMap)
-          : {
-              key: path,
-              root: path,
-              title: workspace.title || baseName(path),
-              main: true,
-              worktree: worktreeFromPath(path).label,
-            }
-        let group = groupsByKey.get(repo.key)
+        const repo = workspaceRepo(workspace, repoMap)
+        const key = consolidate ? repo.key : path
+        let group = groupsByKey.get(key)
         if (!group) {
           group = {
-            key: repo.key,
-            root: repo.root,
-            title: repo.title,
+            key,
+            root: consolidate ? repo.root : path,
+            title: consolidate ? repo.title : workspace.title || baseName(path),
             mainWorkspace: null,
             members: [],
           }
-          groupsByKey.set(repo.key, group)
+          groupsByKey.set(key, group)
         }
         group.members.push({ workspace, path, repo, sessions })
         if (!group.mainWorkspace && (repo.main === true || path === normalizePath(repo.root))) {
@@ -944,6 +959,7 @@ window.__ModuleLoader__.load({
             all.push(session)
           }
         }
+        if (activeOnly && all.length === 0) continue
         const projectKey = normalizePath(group.key)
         const memberPaths = group.members.map((member) => member.path)
         const ordered = sortSessions(all, state, projectKey, memberPaths)
@@ -1084,7 +1100,7 @@ window.__ModuleLoader__.load({
         groups,
         ungroupedProjects,
         pinned: pinnedSessions,
-        tree: buildTree(projects.filter((project) => !project.isUngrouped)),
+        tree: buildTree(projects),
         flat,
         searchResults: trimmed ? searchSessions(trimmed, projects, pinned) : [],
         projectBySession,
@@ -1186,11 +1202,11 @@ window.__ModuleLoader__.load({
       if (archived) {
         return h('span', { className: 'orca-status-dot is-archived', 'aria-hidden': 'true' })
       }
-      if (running) {
-        return h('span', { className: 'orca-spinner', 'aria-hidden': 'true' })
-      }
       if (pending) {
         return h('span', { className: 'orca-status-dot is-pending', 'aria-hidden': 'true' })
+      }
+      if (running) {
+        return h('span', { className: 'orca-spinner', 'aria-hidden': 'true' })
       }
       if (completed) {
         return h('span', { className: 'orca-status-dot is-completed', 'aria-hidden': 'true' })
@@ -1821,7 +1837,7 @@ window.__ModuleLoader__.load({
                 drag,
               }),
             ]
-          : view.projects.map((project) =>
+          : view.ungroupedProjects.map((project) =>
               h(ProjectRow, {
                 key: project.key,
                 project,
@@ -1830,7 +1846,7 @@ window.__ModuleLoader__.load({
                 variant: 'orca',
                 depth: 0,
                 groupId: null,
-                siblings: [],
+                siblings: view.ungroupedProjects.map((entry) => entry.key),
                 collapsed: isCollapsed(
                   state,
                   `p:${project.key}`,
@@ -1838,12 +1854,30 @@ window.__ModuleLoader__.load({
                 ),
                 onToggle: () =>
                   actions.toggleProject(project.key, project.key === currentProjectKey),
-                allowDrag: false,
+                allowDrag: Boolean(drag),
                 currentId,
                 pinnedSet,
                 archivedSet,
+                drag,
               }),
             ),
+        view.projects
+          .filter((project) => project.isUngrouped)
+          .map((project) =>
+            h(ProjectRow, {
+              key: project.key,
+              project,
+              t,
+              actions,
+              variant: 'orca',
+              collapsed: isCollapsed(state, `p:${project.key}`, project.key === currentProjectKey),
+              onToggle: () => actions.toggleProject(project.key, project.key === currentProjectKey),
+              currentId,
+              pinnedSet,
+              archivedSet,
+              drag,
+            }),
+          ),
         !view.hasProjects
           ? h(EmptyState, {
               icon: activeOnly ? 'chat' : 'folder',
@@ -2253,10 +2287,12 @@ window.__ModuleLoader__.load({
       const {
         t,
         wide,
+        expandSidebar,
         workspaceSource,
         sessionSource,
         sessionStatusSource,
         layoutSource,
+        searchRequestSource,
         resolveRepositories,
         openSession: openSessionService,
         startSession: startSessionService,
@@ -2278,6 +2314,27 @@ window.__ModuleLoader__.load({
       const [toast, setToast] = React.useState(null)
       const [repoMap, setRepoMap] = React.useState(null)
       const toastTimer = React.useRef(undefined)
+      const searchRoot = React.useRef(null)
+      const lastSearchRequest = React.useRef(0)
+      const searchFocusPending = React.useRef(false)
+      const searchRequest = useSource(searchRequestSource) || 0
+
+      React.useEffect(() => {
+        if (searchRequest === 0 || searchRequest === lastSearchRequest.current) return
+        lastSearchRequest.current = searchRequest
+        searchFocusPending.current = true
+        setSearchOpen(true)
+        if (wide === false || searchRoot.current?.closest('[inert]')) expandSidebar?.()
+      }, [searchRequest, wide, expandSidebar])
+
+      // Drawer visibility can change while wide stays true; retry only pending focus.
+      React.useEffect(() => {
+        if (!searchFocusPending.current || !searchOpen || wide === false) return
+        const input = searchRoot.current?.querySelector('.orca-search-field input')
+        if (!input || input.closest('[inert]')) return
+        input.focus({ preventScroll: true })
+        searchFocusPending.current = false
+      })
 
       const workspaceSnapshot = useSource(workspaceSource)
       const sessionSnapshot = useSource(sessionSource)
@@ -3055,7 +3112,7 @@ window.__ModuleLoader__.load({
 
       const content = h(
         'div',
-        { className: 'orca-root', 'data-mode': state.mode },
+        { ref: searchRoot, className: 'orca-root', 'data-mode': state.mode },
         h(Header, {
           t,
           mode: state.mode,
@@ -3092,7 +3149,7 @@ window.__ModuleLoader__.load({
                   currentId: currentForView,
                   pinnedSet,
                   archivedSet,
-                  drag: state.groups.length > 0 ? drag : null,
+                  drag,
                 })
               : state.mode === 'workspace'
                 ? h(WorkspaceView, {
@@ -4028,6 +4085,60 @@ window.__ModuleLoader__.load({
       ctx.effect(() => ctx.locale.register(NS, { en, zh }), 'orca-projects: dictionaries')
       ctx.effect(() => installStyles(), 'orca-projects: styles')
 
+      let searchRequest = 0
+      const searchListeners = new Set()
+      const searchRequestSource = {
+        getSnapshot: () => searchRequest,
+        subscribe: (listener) => {
+          searchListeners.add(listener)
+          return () => searchListeners.delete(listener)
+        },
+      }
+      ctx.effect(() => {
+        let entry
+        let unsubscribe = () => {}
+        const reconcile = () => {
+          // Raw entries retain the shadowed DSH browser's injected shortcut source.
+          const next = ctx.slots
+            .entries?.('sidebar.workspaces')
+            .find(
+              (candidate) =>
+                candidate.options.locale === 'workspace' && typeof candidate.inject === 'function',
+            )
+          if (next === entry) return
+          unsubscribe()
+          unsubscribe = () => {}
+          entry = next
+          if (!entry) return
+          try {
+            const source = entry.inject().hooks?.workspaceShortcuts
+            if (
+              typeof source?.getSnapshot !== 'function' ||
+              typeof source?.subscribe !== 'function'
+            )
+              return
+            let lastRequest = source.getSnapshot().searchRequest
+            unsubscribe = source.subscribe(() => {
+              const request = source.getSnapshot().searchRequest
+              if (request === lastRequest) return
+              lastRequest = request
+              if (!Number.isSafeInteger(request) || request <= 0) return
+              searchRequest += 1
+              for (const listener of searchListeners) listener()
+            })
+          } catch {
+            // An unavailable/incompatible shipped entry must not break the replacement.
+          }
+        }
+        const unsubscribeSlots = ctx.slots.subscribe?.('sidebar.workspaces', reconcile)
+        reconcile()
+        return () => {
+          unsubscribeSlots?.()
+          unsubscribe()
+          searchListeners.clear()
+        }
+      }, 'orca-projects: search shortcuts')
+
       ctx.slots.inject('sidebar.workspaces', () =>
         ctx.slots.register(
           {
@@ -4039,6 +4150,7 @@ window.__ModuleLoader__.load({
               sessionSource,
               sessionStatusSource,
               layoutSource,
+              searchRequestSource,
               resolveRepositories: fetchRepositories,
               openSession: (sessionId) => uiWorkspace.openSession(sessionId),
               startSession: (workspaceId) => uiWorkspace.startSession(workspaceId),

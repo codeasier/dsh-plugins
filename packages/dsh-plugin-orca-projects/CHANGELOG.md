@@ -2,6 +2,14 @@
 
 ## 0.1.0
 
+- Prioritize waiting-for-user status over running, retain loose sessions in
+  grouped/tree views, and enable sorting and dragging without custom groups.
+- Keep complete repository membership and main-workspace action targets when
+  filtering active sessions; use resolved checkout identities for session chips.
+- Distinguish non-Git directories from missing/error resolution results before
+  path fallback, and preserve the mount prefix in repository-resolution URLs.
+- Bridge the shipped session-search command to open and focus the replacement
+  sidebar's search field.
 - Add the Orca-like project sidebar: project-first rows, custom groups with
   drag-and-drop, a pinned session shelf, local search, archived filters, manual
   ordering, and a compact reimplementation of the workspace, tree, and flat

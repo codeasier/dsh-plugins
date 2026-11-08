@@ -5,7 +5,7 @@
  * The browser half owns every visual contribution. This Host half contributes
  * one authenticated fetch route used to consolidate Git worktrees under one
  * project: the browser cannot read `.git` itself, so the Host resolves each
- * registered workspace with {@link resolveRepositories} and returns the
+ * registered workspace with {@link resolveRepositoryResults} and returns the
  * repository identity. The route is optional: without it the browser keeps the
  * path-based fallback.
  *
@@ -14,7 +14,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 
-import { resolveRepositories } from './repo.js'
+import { resolveRepositoryResults } from './repo.js'
 
 /** Stable Loader identity; keep it equal to the patch row id. */
 export const name = 'orca-projects'
@@ -65,7 +65,7 @@ export function apply(ctx: Context): void {
             { status: 400 },
           )
         }
-        const repositories = await resolveRepositories(paths)
+        const repositories = await resolveRepositoryResults(paths)
         return Response.json({ repositories })
       },
     })

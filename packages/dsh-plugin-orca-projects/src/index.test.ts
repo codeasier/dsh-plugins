@@ -334,7 +334,7 @@ function loadClient(): ClientModule {
   })
 }
 
-function makeContext(): {
+function makeContext(data = snapshots()): {
   ctx: UnknownRecord
   registrations: Array<{ options: UnknownRecord; component: unknown }>
   injected: string[]
@@ -343,11 +343,11 @@ function makeContext(): {
   const registrations: Array<{ options: UnknownRecord; component: unknown }> = []
   const injected: string[] = []
   const localeCalls: unknown[][] = []
-  const { workspaceSnapshot, sessionSnapshot } = snapshots()
+  const { workspaceSnapshot, sessionSnapshot } = data
   const layoutSnapshot = { activePanelId: null }
   const statusSnapshot = new Map([
     ['s-one', { running: true, pendingInteraction: null, completionUnread: false }],
-    ['s-pinned', { running: false, pendingInteraction: {}, completionUnread: false }],
+    ['s-pinned', { running: true, pendingInteraction: {}, completionUnread: false }],
     ['s-two', { running: false, pendingInteraction: null, completionUnread: true }],
   ])
   const services: Record<string, unknown> = {
@@ -407,6 +407,24 @@ function project(view: View, path: string): ProjectView {
   const found = view.projects.find((entry) => entry.key === path)
   if (found === undefined) throw new Error(`project ${path} missing from view`)
   return found
+}
+
+function renderSidebar(state: Partial<State>, data = snapshots()): string {
+  const client = loadClient()
+  const { ctx, registrations } = makeContext(data)
+  client.apply(ctx)
+  const registration = registrations[0]
+  if (registration === undefined || typeof registration.options.inject !== 'function') {
+    throw new Error('sidebar registration missing its inject face')
+  }
+  storageValue = JSON.stringify({ ...client.__internals.defaultState(), ...state })
+  return renderToString(
+    React.createElement(registration.component as React.ComponentType<UnknownRecord>, {
+      ...(registration.options.inject as () => UnknownRecord)(),
+      t: (key: string) => key,
+      wide: true,
+    }),
+  )
 }
 
 describe('client bundle', () => {
@@ -477,6 +495,50 @@ describe('client bundle', () => {
     expect(flat).toContain('orca-spinner')
     expect(flat).toContain('is-completed')
     expect(flat).toContain('is-pending')
+  })
+})
+
+describe('sidebar review regressions', () => {
+  it('prioritizes a pending interaction over a simultaneously running session', () => {
+    const html = renderSidebar({ mode: 'flat' })
+    const pendingRow = html.split('data-session-id="s-pinned"')[1]?.split('data-session-id=')[0]
+    expect(pendingRow).toContain('is-pending')
+    expect(pendingRow).not.toContain('orca-spinner')
+    expect(html).toContain('orca-spinner')
+  })
+
+  it.each(['orca', 'workspace-tree'])('keeps loose sessions accessible in %s', (mode) => {
+    const html = renderSidebar({
+      mode,
+      groups: [{ id: 'g-empty', name: 'Empty group' }],
+      collapsed: { 'p:__ungrouped__': false },
+    })
+    expect(html).toContain('data-project-key="__ungrouped__"')
+    expect(html.match(/data-session-id="s-loose"/g)).toHaveLength(1)
+  })
+
+  it('sorts projects by recent sessions without requiring custom groups', () => {
+    const data = snapshots()
+    const latest = data.sessionSnapshot.byId['s-two']
+    if (latest === undefined) throw new Error('missing second project session')
+    latest.updatedAt = NOW
+    const html = renderSidebar({ orderBy: 'updated' }, data)
+    expect(html.indexOf('data-project-key="/projects/two"')).toBeLessThan(
+      html.indexOf('data-project-key="/projects/one"'),
+    )
+  })
+
+  it('uses manual project order and enables project and session dragging without groups', () => {
+    const html = renderSidebar({
+      orderBy: 'manual',
+      projectOrder: { __ungrouped__: ['/projects/two', '/projects/one'] },
+      collapsed: { 'p:/projects/one': false },
+    })
+    expect(html.indexOf('data-project-key="/projects/two"')).toBeLessThan(
+      html.indexOf('data-project-key="/projects/one"'),
+    )
+    expect(html).toMatch(/class="orca-project-head"[^>]*draggable="true"/)
+    expect(html).toMatch(/class="orca-session-main[^"]*"[^>]*draggable="true"/)
   })
 })
 
@@ -727,6 +789,68 @@ describe('orca view model', () => {
       internals.worktreeForSession(featureSession, consolidated, view.workspaceBySession),
     ).toEqual({ label: 'feature-a', main: false })
     expect(view.counts.projects).toBe(2)
+  })
+
+  it.each(['workspace', 'workspace-tree', 'flat'])(
+    'keeps checkout labels without consolidating directory groups in %s',
+    (mode) => {
+      const internals = loadClient().__internals
+      const { workspaceSnapshot, sessionSnapshot, repoMap, main, feature } =
+        consolidationSnapshots()
+      const view = internals.buildView({
+        workspaceSnapshot,
+        sessionSnapshot,
+        repoMap,
+        state: { ...internals.defaultState(), mode },
+      })
+      expect(view.projects.map((entry) => entry.key)).toEqual([main, feature, '/projects/other'])
+      const checkout = project(view, feature)
+      expect(checkout.path).toBe(feature)
+      expect(checkout.worktrees[0]).toMatchObject({ label: 'feature-a', main: false })
+      const session = sessionSnapshot.byId['s-feature']
+      if (session === undefined) throw new Error('missing feature session')
+      expect(internals.worktreeForSession(session, checkout, view.workspaceBySession)).toEqual({
+        label: 'feature-a',
+        main: false,
+      })
+    },
+  )
+
+  it('keeps every repository member and the main action target under the active filter', () => {
+    const internals = loadClient().__internals
+    const { workspaceSnapshot, sessionSnapshot, repoMap, main } = consolidationSnapshots()
+    const state = internals.defaultState()
+    const statusMap = new Map([['s-feature', { running: true }]])
+    const full = internals.buildView({ workspaceSnapshot, sessionSnapshot, repoMap, state })
+    const active = internals.buildView({
+      workspaceSnapshot,
+      sessionSnapshot,
+      repoMap,
+      statusMap,
+      state: { ...state, activeOnly: true },
+    })
+    const original = project(full, main)
+    const filtered = project(active, main)
+    expect(filtered.sessions.map((entry) => entry.id)).toEqual(['s-feature'])
+    expect(filtered.workspaceId).toBe(original.workspaceId)
+    expect(filtered.workspaceIds).toEqual(original.workspaceIds)
+    expect(filtered.memberPaths).toEqual(original.memberPaths)
+    expect(
+      filtered.worktrees.map(({ workspaceId, path, label, main }) => ({
+        workspaceId,
+        path,
+        label,
+        main,
+      })),
+    ).toEqual(
+      original.worktrees.map(({ workspaceId, path, label, main }) => ({
+        workspaceId,
+        path,
+        label,
+        main,
+      })),
+    )
+    expect(active.counts.projects).toBe(1)
   })
 
   it('applies a group assignment made on a worktree path to the whole project', () => {

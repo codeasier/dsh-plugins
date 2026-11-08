@@ -35,9 +35,10 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   then worktree and project chips. Project, pinned, flat, and search rows share
   the same card geometry, with the project chip only where the project is not
   already the surrounding header.
-- **Worktree labels.** Every session carries `main` for the workspace root or
-  the named worktree derived from its workspace directory, such as
-  `.worktrees/feature-a` or Orca's `workspaces/<project>/2.0-review`.
+- **Worktree labels.** Session chips use the Host-resolved checkout identity,
+  including worktrees in arbitrary directories. Ordinary subdirectories inherit
+  their checkout's label. Without a resolved identity, the client recognizes
+  paths such as `.worktrees/feature-a` or Orca's `workspaces/<project>/2.0-review`.
   Cross-project, pinned, and flat cards always show the label; project cards
   show a named worktree when it is not already the project title, and omit the
   implicit `main`. Unlike a path-only heuristic, the Host half reads the
@@ -47,14 +48,18 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   spinner, waiting-for-user interactions an amber dot, finished-but-unviewed
   completions a green dot, and inactive sessions a gray dot. In Orca-like mode,
   View options → **仅活跃会话** hides every non-active session and project; the
-  resulting empty state offers **查看全部会话** to switch the filter off.
+  resulting empty state offers **查看全部会话** to switch the filter off. Waiting
+  takes precedence over running. Filtering never changes a visible project's
+  worktree membership, main workspace, or action targets.
 - **Custom groups.** Use a project's `...` menu → **移动到分组** to create a group
   or move the project into one. You can also drag a project onto a group. Group
   headers can be renamed, deleted, and used to add projects; deleting a group
   returns its projects to **未分组**.
 - **The other grouping modes remain available** in the same menu: **按工作区**,
   **按工作区树**, **单列表**, plus **Orca-like**. Sort by recent updates or manual
-  order; filter archived sessions; search project and session titles.
+  order; filter archived sessions; search project and session titles. Orca-like
+  sorting and dragging work before any custom group is created. Sessions outside
+  registered workspaces remain accessible in grouped and workspace-tree views.
 - **Session actions** include pin/unpin, archive/unarchive, open, and copy the
   Session ID. Project actions include a new session (per worktree), open the
   main workspace, rename the project label, delete the project, and move it to
@@ -72,14 +77,20 @@ occupant of `sidebar.workspaces` at priority `-1`, shadowing the shipped browser
 and re-creates the view-options menu with the extra mode. If this plugin crashes,
 the slot renderer falls back to the shipped browser. The shipped browser's
 per-row extension slots are not rendered by this sidebar in this version.
+The plugin observes the shipped browser's injected shortcut source, so DSH's
+`session.search` command opens and focuses this search field without replacing
+its default or user-configured key bindings.
 
 The browser cannot read `.git` directly. A small Host half registers one
 authenticated fetch route, `/api/orca-projects/resolve`, through the existing
 Connection service. It resolves each registered workspace path by reading
 `.git` and `commondir` with Node's filesystem APIs, then returns the canonical
 main-checkout path, title, and worktree name. The browser groups workspaces by
-that key. When the route is unavailable, the client keeps a path-based fallback
-for nested `.worktrees` directories and Orca workspace folders.
+that key. The browser uses a document-relative URL so subpath deployments keep
+DSH's mount prefix. The Host distinguishes confirmed non-repositories from
+missing paths and resolution errors: existing non-Git directories stay separate,
+while missing paths, errors, and an unavailable route retain the path-based
+fallback for nested `.worktrees` directories and Orca workspace folders.
 
 ## Install
 
@@ -147,7 +158,13 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
   consolidation, group assignment through a member path, the path-based
   fallback, and project names. `src/repo.ts` is tested against temporary main
   checkouts and linked worktrees, including an Orca-style path.
-- Manual checks in a scratch Web profile at DSH 0.2.2-rc.1: Orca-like mode in the
+- Review-follow-up regressions cover simultaneous running/waiting status, loose
+  sessions in grouped/tree views, sorting/dragging without groups, stable active
+  project membership, resolved checkout labels in all modes, explicit negative
+  repository probes, subpath URLs, and the shipped search-command bridge.
+  These use server-rendered markup and fake service/shortcut sources; the review
+  fixes have not been reinstalled or rechecked in a real Web/Desktop page.
+- Earlier manual checks in a scratch Web profile at DSH 0.2.2-rc.1: Orca-like mode in the
   view-options menu; project expansion; pin → shelf and gray project row; unpin
   → restored row; create/rename/delete group; move project by menu and by drag;
   reload persistence; search; archive/unarchive; flat, workspace, and tree modes;

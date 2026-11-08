@@ -42,23 +42,29 @@ export interface ResolveRepositoriesRequest {
   readonly paths: readonly string[]
 }
 
+/** A probe outcome; only confirmed non-repositories must disable path fallback. */
+export interface RepositoryResolution extends RepositoryIdentity {
+  readonly status: 'repository' | 'not-repository' | 'missing' | 'error'
+}
+
 /** Successful payload returned by the `resolve` host method. */
 export interface ResolveRepositoriesResult {
-  readonly repositories: readonly RepositoryIdentity[]
+  readonly repositories: readonly RepositoryResolution[]
+}
+
+/** Resolve only Git identities, preserving the original positive-only API. */
+export async function resolveRepositories(paths: readonly string[]): Promise<RepositoryIdentity[]> {
+  return (await resolveRepositoryResults(paths)).filter((entry) => entry.status === 'repository')
 }
 
 /**
- * Resolve repository identities for a batch of workspace directories.
- *
- * A failed or missing `.git` probe never rejects the batch, and that path is
- * omitted so the browser can keep its own fallback (which still recognizes a
- * worktree directory that no longer exists). The other workspaces still
- * consolidate.
- *
- * @param paths - workspace directories, usually the registered workspace list.
- * @returns one identity per resolved path, in first-seen order.
+ * Probe each workspace independently, retaining negative outcomes so the client
+ * can distinguish a confirmed ordinary directory from unavailable metadata.
+ * Missing paths and failed probes still permit the client's path fallback.
  */
-export async function resolveRepositories(paths: readonly string[]): Promise<RepositoryIdentity[]> {
+export async function resolveRepositoryResults(
+  paths: readonly string[],
+): Promise<RepositoryResolution[]> {
   const unique: string[] = []
   const seen = new Set<string>()
   for (const path of paths) {
@@ -69,28 +75,40 @@ export async function resolveRepositories(paths: readonly string[]): Promise<Rep
     unique.push(trimmed)
     if (unique.length >= 500) break
   }
-  const resolved = await Promise.all(
-    unique.map(async (path) => ({ path, identity: await resolveOne(path) })),
-  )
-  return resolved.flatMap(({ identity }) => (identity === undefined ? [] : [identity]))
+  return Promise.all(unique.map(resolveOne))
 }
 
-/** Resolve one workspace, or undefined when its root carries no `.git` marker. */
-async function resolveOne(path: string): Promise<RepositoryIdentity | undefined> {
+/** Resolve one workspace without conflating a failed probe with a negative one. */
+async function resolveOne(path: string): Promise<RepositoryResolution> {
   const absolute = normalizeInput(path)
   const real = await safeRealpath(absolute)
+  const unresolved = (status: RepositoryResolution['status']): RepositoryResolution => ({
+    ...identity(absolute, path, absolute, true, 'main'),
+    status,
+  })
+  try {
+    const directory = await stat(real)
+    if (!directory.isDirectory()) return unresolved('not-repository')
+  } catch (error) {
+    return unresolved(isMissing(error) ? 'missing' : 'error')
+  }
   try {
     const git = await stat(join(real, '.git'))
-    if (git.isDirectory()) {
-      return identity(real, absolute, real, true, 'main')
-    }
-    if (git.isFile()) {
-      return await fromGitFile(real, absolute)
-    }
-  } catch {
-    // No repository marker at this workspace root.
+    const repository = git.isDirectory()
+      ? identity(real, path, real, true, 'main')
+      : git.isFile()
+        ? await fromGitFile(real, path)
+        : undefined
+    return repository ? { ...repository, status: 'repository' } : unresolved('error')
+  } catch (error) {
+    return unresolved(isMissing(error) ? 'not-repository' : 'error')
   }
-  return undefined
+}
+
+/** ENOENT/ENOTDIR distinguish absence from access and other probe failures. */
+function isMissing(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null)?.code
+  return code === 'ENOENT' || code === 'ENOTDIR'
 }
 
 /**
