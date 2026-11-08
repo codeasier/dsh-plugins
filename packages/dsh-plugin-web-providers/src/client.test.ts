@@ -36,35 +36,75 @@ const initial = (): Config => ({
 })
 
 /** Execute the actual client bundle with deterministic hooks, not a rendered browser. */
-function mount(value = initial()) {
+function mount(value = initial(), { queued = false } = {}) {
   let snapshot = { status: 'ready', value: structuredClone(value), revision: 1 }
+  let host = snapshot
+  let generation = 0
+  let tail = Promise.resolve()
+  let pendingRevision: number | undefined
+  let describeReads = 0
+  const superseded: number[] = []
   let failure: 'reject' | 'false' | null = null
   let afterAccept: (() => void) | null = null
   let nextMutation: Promise<void> | null = null
+  let nextDescribe: Promise<void> | null = null
+  let describeStarted: (() => void) | null = null
   const writes: { ops: Op[]; revision: number | undefined; method: string }[] = []
-  const mutate = async (ops: Op[], revision?: number, method = 'mutate') => {
-    writes.push({ ops: structuredClone(ops), revision, method })
+  const mutate = (ops: Op[], revision?: number, method = 'mutate') => {
+    const ownedOps = structuredClone(ops)
+    const ownGeneration = ++generation
+    writes.push({ ops: ownedOps, revision, method })
     const gate = nextMutation
     nextMutation = null
-    if (gate) await gate
-    if (failure === 'reject') throw new Error('transport disconnected')
-    if (failure === 'false' || (revision !== undefined && revision !== snapshot.revision))
-      return false
-    const next = structuredClone(snapshot.value)
-    for (const op of ops) {
-      if (op.path.length === 1) {
-        next[op.path[0] as keyof Config] = structuredClone(op.value) as Section
-      } else {
-        const section = next[op.path[0] as keyof Config]
-        if (op.path[1] !== 'active') throw new Error('unsupported test operation')
-        section.active = op.value as string
+    const execute = async () => {
+      if (gate) await gate
+      if (failure === 'reject') throw new Error('transport disconnected')
+      const current = queued ? host : snapshot
+      const expected = revision ?? pendingRevision ?? snapshot.revision
+      if (failure === 'false' || expected !== current.revision) {
+        if (queued && ownGeneration === generation) {
+          pendingRevision = undefined
+          describeReads += 1
+          describeStarted?.()
+          describeStarted = null
+          const recovery = nextDescribe
+          nextDescribe = null
+          if (recovery) await recovery
+          snapshot = host
+        }
+        return false
       }
+      const next = structuredClone(current.value)
+      for (const op of ownedOps) {
+        if (op.path.length === 1) {
+          next[op.path[0] as keyof Config] = structuredClone(op.value) as Section
+        } else {
+          const section = next[op.path[0] as keyof Config]
+          if (op.path[1] !== 'active') throw new Error('unsupported test operation')
+          section.active = op.value as string
+        }
+      }
+      host = { ...current, value: next, revision: current.revision + 1 }
+      // DSH 0.2.2-rc.1 only folds the latest queued generation into the mirror.
+      if (!queued || ownGeneration === generation) {
+        pendingRevision = undefined
+        snapshot = host
+      } else {
+        pendingRevision = host.revision
+        superseded.push(host.revision)
+      }
+      const callback = afterAccept
+      afterAccept = null
+      callback?.()
+      return true
     }
-    snapshot = { ...snapshot, value: next, revision: snapshot.revision + 1 }
-    const callback = afterAccept
-    afterAccept = null
-    callback?.()
-    return true
+    if (!queued) return execute()
+    const task = tail.then(execute)
+    tail = task.then(
+      () => {},
+      () => {},
+    )
+    return task
   }
   const form = {
     getSnapshot: () => snapshot,
@@ -104,6 +144,11 @@ function mount(value = initial()) {
           }
         },
       ]
+    },
+    useRef: (initialValue: unknown) => {
+      const index = cursor++
+      if (!hooks[index]) hooks[index] = { value: { current: initialValue } }
+      return hooks[index]?.value
     },
     useEffect: (effect: () => void, deps: unknown[]) => {
       const index = cursor++
@@ -214,6 +259,10 @@ function mount(value = initial()) {
   render()
   return {
     writes,
+    mutate,
+    superseded,
+    describeReads: () => describeReads,
+    invoke,
     afterAccept: (callback: () => void) => {
       afterAccept = callback
     },
@@ -224,12 +273,23 @@ function mount(value = initial()) {
       })
       return release
     },
+    deferDescribe: () => {
+      let release!: () => void
+      const started = new Promise<void>((resolve) => {
+        describeStarted = resolve
+      })
+      nextDescribe = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      return { release, started }
+    },
     snapshot: () => snapshot,
     reject: (next: typeof failure) => {
       failure = next
     },
     refresh: (next: Config, revision = snapshot.revision + 1) => {
       snapshot = { ...snapshot, value: structuredClone(next), revision }
+      host = snapshot
       render()
     },
     button,
@@ -472,7 +532,7 @@ describe('in-flight provider identity edits (4504537206)', () => {
     ['fetch', 'Name'],
     ['fetch', 'JSON'],
   ] as const)(
-    'keeps %s %s locked while the opposite section starts and settles a write',
+    'keeps %s %s locked when the opposite section attempts a write',
     async (kind, input) => {
       const config = initial()
       for (const key of ['search', 'fetch'] as const) {
@@ -492,7 +552,6 @@ describe('in-flight provider identity edits (4504537206)', () => {
         ui.select(`Provider in use for ${kind === 'search' ? 'Search' : 'Fetch'}`),
         'a',
       )
-      const releaseOther = ui.deferNext()
       const otherSwitch = ui.change(
         ui.select(`Provider in use for ${kind === 'search' ? 'Fetch' : 'Search'}`),
         'a',
@@ -503,17 +562,13 @@ describe('in-flight provider identity edits (4504537206)', () => {
       try {
         if (input === 'Name') await ui.change(ui.field('Nameid', kind), 'c')
         else await ui.change(ui.json(kind), '{"id":"c"}')
-        ui.reject('false')
-        releaseOther()
         await otherSwitch
-        ui.reject(null)
+        expect(ui.writes).toHaveLength(1)
         lockedAfterSettlement =
           ui.field('Nameid', kind).props.disabled && ui.json(kind).props.disabled
         if (input === 'Name') await ui.change(ui.field('Nameid', kind), 'c')
         else await ui.change(ui.json(kind), '{"id":"c"}')
       } finally {
-        ui.reject(null)
-        releaseOther()
         release()
         await Promise.all([switching, otherSwitch])
       }
@@ -548,6 +603,141 @@ describe('in-flight provider identity edits (4504537206)', () => {
       expect(ui.snapshot().value.search.active).toBe('c')
     },
   )
+})
+
+describe('shared namespace writes (4505996639)', () => {
+  it('models superseded host responses and delayed conflict recovery', async () => {
+    const ui = mount(initial(), { queued: true })
+    const release = ui.deferNext()
+    const describe = ui.deferDescribe()
+    const first = ui.mutate([{ op: 'set', path: ['search', 'active'], value: '' }], 1)
+    const second = ui.mutate([{ op: 'set', path: ['fetch', 'active'], value: '' }], 1)
+    try {
+      release()
+      expect(await first).toBe(true)
+      expect(ui.superseded).toEqual([2])
+      await describe.started
+      expect(ui.describeReads()).toBe(1)
+      expect(ui.snapshot().revision).toBe(1)
+    } finally {
+      release()
+      describe.release()
+      await Promise.all([first, second])
+    }
+    expect(await second).toBe(false)
+    expect(ui.describeReads()).toBe(1)
+    expect(ui.snapshot().revision).toBe(2)
+    expect(ui.snapshot().value).toMatchObject({
+      search: { active: '' },
+      fetch: { active: 'plain' },
+    })
+  })
+
+  it.each([
+    ['search', 'switch', 'switch'],
+    ['search', 'switch', 'save'],
+    ['search', 'save', 'switch'],
+    ['search', 'save', 'save'],
+    ['fetch', 'switch', 'switch'],
+    ['fetch', 'switch', 'save'],
+    ['fetch', 'save', 'switch'],
+    ['fetch', 'save', 'save'],
+  ] as const)(
+    'fences a competing write during %s %s, then permits %s at the fresh revision',
+    async (kind, firstAction, secondAction) => {
+      const other = kind === 'search' ? 'fetch' : 'search'
+      const config = initial()
+      for (const key of ['search', 'fetch'] as const) {
+        config[key] = {
+          active: 'b',
+          providers: [
+            { id: 'a', vendor: 'url' },
+            { id: 'b', vendor: 'url' },
+          ],
+        }
+      }
+      const ui = mount(config, { queued: true })
+      await ui.click('Edit', other)
+      await ui.change(ui.field('Display namelabel', other), 'Other edit')
+      await ui.click('Edit', kind)
+      await ui.change(ui.field('Display namelabel', kind), 'First edit')
+      const active = (key: string) =>
+        ui.select(`Provider in use for ${key === 'search' ? 'Search' : 'Fetch'}`)
+      // Retain a pre-lock handler to exercise calls before React commits the busy state.
+      const competingControl = secondAction === 'save' ? ui.button('Save', other) : active(other)
+      const release = ui.deferNext()
+      const describe = ui.deferDescribe()
+      const first = firstAction === 'save' ? ui.click('Save', kind) : ui.change(active(kind), 'a')
+      const disabled =
+        secondAction === 'save'
+          ? ui.button('Saving\u2026', other).props.disabled
+          : active(other).props.disabled
+      const competing = ui.invoke(
+        competingControl,
+        secondAction === 'save' ? 'onClick' : 'onChange',
+        secondAction === 'save' ? undefined : 'a',
+      )
+      try {
+        await ui.change(ui.field('Display namelabel', kind), 'In-flight edit')
+      } finally {
+        release()
+        await first
+        describe.release()
+        await competing
+      }
+      if (firstAction === 'save') await ui.click('Edit', kind)
+      expect(ui.field('Display namelabel', kind).props.value).toBe('In-flight edit')
+      await ui.click('Save', kind)
+      expect(ui.snapshot().value[kind].providers[0]).toMatchObject({ label: 'In-flight edit' })
+      expect(ui.snapshot().value[kind].active).toBe(firstAction === 'switch' ? 'a' : 'b')
+      expect(ui.writes.map((write) => write.revision)).toEqual([1, 2])
+      expect(ui.superseded).toEqual([])
+      expect(ui.describeReads()).toBe(0)
+      expect(disabled).toBe(true)
+      if (secondAction === 'save') await ui.click('Save', other)
+      else await ui.change(active(other), 'a')
+      expect(ui.writes[2]).toMatchObject({ revision: 3 })
+      expect(ui.snapshot().value[other]).toMatchObject(
+        secondAction === 'save'
+          ? { active: 'b', providers: [{ label: 'Other edit' }, {}] }
+          : { active: 'a' },
+      )
+    },
+  )
+
+  it.each([
+    ['search', 'switch'],
+    ['search', 'save'],
+    ['fetch', 'switch'],
+    ['fetch', 'save'],
+  ] as const)('retains a real %s conflict after a queued %s settles', async (kind, action) => {
+    const config = initial()
+    config[kind].providers.push({ id: 'b', vendor: 'url' })
+    const ui = mount(config, { queued: true })
+    await ui.click('Edit', kind)
+    await ui.change(ui.field('Display namelabel', kind), 'Local')
+    ui.afterAccept(() => {
+      void ui.change(ui.field('Display namelabel', kind), 'Newer local')
+      const remote = structuredClone(ui.snapshot().value)
+      remote[kind].providers[0] = { ...remote[kind].providers[0], apiKey: 'rotated-key' }
+      ui.refresh(remote)
+    })
+    if (action === 'save') await ui.click('Save', kind)
+    else
+      await ui.change(
+        ui.select(`Provider in use for ${kind === 'search' ? 'Search' : 'Fetch'}`),
+        'b',
+      )
+    if (action === 'save') await ui.click('Edit', kind)
+    await ui.click('Save', kind)
+    expect(ui.writes.map((write) => write.revision)).toEqual([1, 1])
+    expect(ui.snapshot().value[kind].providers[0]).toMatchObject({
+      apiKey: 'rotated-key',
+      ...(action === 'save' ? { label: 'Local' } : {}),
+    })
+    expect(ui.field('Display namelabel', kind).props.value).toBe('Newer local')
+    expect(ui.text()).toMatch(/rejected/i)
+  })
 })
 
 describe('persisted active switching (4494843659)', () => {

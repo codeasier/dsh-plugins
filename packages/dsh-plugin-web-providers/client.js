@@ -1228,8 +1228,9 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
 
       const [draft, setDraft] = React.useState(null)
       const [openRow, setOpenRow] = React.useState('')
-      // One section's RPC must not release another section's identity lock.
-      const [busy, setBusy] = React.useState({})
+      // Both sections share one host revision; never queue a competing write.
+      const pendingWrite = React.useRef(false)
+      const [busy, setBusy] = React.useState(false)
       const [notice, setNotice] = React.useState(null)
 
       React.useEffect(() => {
@@ -1279,8 +1280,9 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
 
       const save = async (kindKey) => {
         const entry = draft[kindKey]
-        if (busy[kindKey] === true || invalidJson(entry)) return
-        setBusy((current) => ({ ...current, [kindKey]: true }))
+        if (pendingWrite.current || invalidJson(entry)) return
+        pendingWrite.current = true
+        setBusy(true)
         try {
           const ok = await form.mutate(
             [{ op: 'set', path: [kindKey], value: entry.value }],
@@ -1306,19 +1308,21 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
         } catch {
           setNotice({ kind: kindKey, tone: 'error', text: t('status.failed') })
         } finally {
-          setBusy((current) => ({ ...current, [kindKey]: false }))
+          pendingWrite.current = false
+          setBusy(false)
         }
       }
 
       const applyActive = async (kindKey, id) => {
         const base = normalize(saved[kindKey])
         if (
-          busy[kindKey] === true ||
+          pendingWrite.current ||
           !sameProviderIds(draft[kindKey].value, base) ||
           (id !== '' && !base.providers.some((entry) => entry.id === id))
         )
           return
-        setBusy((current) => ({ ...current, [kindKey]: true }))
+        pendingWrite.current = true
+        setBusy(true)
         try {
           const ok = await form.mutate(
             [{ op: 'set', path: [kindKey, 'active'], value: id }],
@@ -1353,7 +1357,8 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
         } catch {
           setNotice({ kind: kindKey, tone: 'error', text: t('status.failed') })
         } finally {
-          setBusy((current) => ({ ...current, [kindKey]: false }))
+          pendingWrite.current = false
+          setBusy(false)
         }
       }
 
@@ -1450,10 +1455,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                 value: effectiveActive(persisted),
                 width: 190,
                 ariaLabel: t('a11y.activeFor', { kind: t(kind.titleKey) }),
-                disabled:
-                  busy[kind.key] === true ||
-                  named.length === 0 ||
-                  !sameProviderIds(value, persisted),
+                disabled: busy || named.length === 0 || !sameProviderIds(value, persisted),
                 options: [
                   {
                     value: '',
@@ -1484,7 +1486,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                     providers,
                     isActive: index === activeIndex,
                     open: openRow === `${kind.key}:${index}`,
-                    busy: busy[kind.key] === true,
+                    busy,
                     invalid,
                     jsonDraft: entry.json[index],
                     onJsonChange: (edit) =>
@@ -1521,7 +1523,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
               {
                 type: 'button',
                 className: 'dsh-wp-btn dsh-wp-outline',
-                disabled: busy[kind.key] === true,
+                disabled: busy,
                 onClick: () => addProvider(kind),
               },
               plusIcon(),
@@ -1541,7 +1543,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                     {
                       type: 'button',
                       className: 'dsh-wp-btn dsh-wp-outline',
-                      disabled: busy[kind.key] === true,
+                      disabled: busy,
                       onClick: () => {
                         restore(kind.key)
                         setOpenRow('')
@@ -1556,10 +1558,10 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                     {
                       type: 'button',
                       className: 'dsh-wp-btn dsh-wp-primary dsh-wp-btn-sm',
-                      disabled: busy[kind.key] === true || invalid,
+                      disabled: busy || invalid,
                       onClick: () => save(kind.key),
                     },
-                    busy[kind.key] === true ? t('action.saving') : t('action.save'),
+                    busy ? t('action.saving') : t('action.save'),
                   )
                 : null,
             ),
