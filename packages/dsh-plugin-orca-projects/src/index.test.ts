@@ -62,6 +62,7 @@ interface State {
   groups: Group[]
   assignments: Record<string, string>
   projectNames: Record<string, string>
+  sessionProjects?: Record<string, string>
   projectOrder: Record<string, string[]>
   sessionOrder: Record<string, string[]>
   collapsed: Record<string, boolean>
@@ -84,6 +85,7 @@ interface RepoEntry {
 
 interface ProjectView {
   key: string
+  projectId: string
   workspaceId: string | null
   workspaceIds: string[]
   memberPaths: string[]
@@ -115,6 +117,17 @@ interface View {
   searchResults: Array<{ session: Summary; project: ProjectView }>
   tree: Array<{ project: ProjectView; children: unknown[] }>
   workspaceBySession: Map<string, string>
+  projectBySession: Map<string, ProjectView>
+  migration: {
+    candidates: Array<{
+      sessionId: string
+      title: string
+      projectId: string
+      projectTitle: string
+    }>
+    unmatched: number
+    adopted: number
+  }
   counts: { projects: number; sessions: number; pinned: number }
   hasProjects: boolean
 }
@@ -702,12 +715,14 @@ describe('orca view model', () => {
         { id: 'g1', name: 'duplicate' },
       ],
       assignments: { '/projects/one': 'g1', '/projects/two': 42 },
+      sessionProjects: { 's-one': '/projects/one', 's-two': 42, '': '/projects/two' },
       projectOrder: { g1: ['/projects/one', 7] },
       sessionOrder: { '/projects/one': ['s-one'] },
       collapsed: { ['p:' + '/projects/one']: true },
     })
     expect(state.groups).toEqual([{ id: 'g1', name: 'Client' }])
     expect(state.assignments).toEqual({ '/projects/one': 'g1' })
+    expect(state.sessionProjects).toEqual({ 's-one': '/projects/one' })
     expect(state.projectOrder.g1).toEqual(['/projects/one'])
     expect(state.sessionOrder['/projects/one']).toEqual(['s-one'])
     expect(state.collapsed['p:/projects/one']).toBe(true)
@@ -798,6 +813,92 @@ describe('orca view model', () => {
       internals.worktreeForSession(featureSession, consolidated, view.workspaceBySession),
     ).toEqual({ label: 'feature-a', main: false })
     expect(view.counts.projects).toBe(2)
+  })
+
+  it('detects loose sessions by cwd and adopts them through external project mappings', () => {
+    const internals = loadClient().__internals
+    const base = snapshots()
+    const sessionSnapshot: SessionSnapshot = {
+      ids: [...base.sessionSnapshot.ids, 's-inside'],
+      byId: {
+        ...base.sessionSnapshot.byId,
+        's-inside': summary('s-inside', 'Inside', NOW - 100, '/projects/one/src'),
+      },
+    }
+    const initial = internals.buildView({
+      workspaceSnapshot: base.workspaceSnapshot,
+      sessionSnapshot,
+      state: internals.defaultState(),
+    })
+    expect(initial.migration.candidates).toEqual([
+      {
+        sessionId: 's-inside',
+        title: 'Inside',
+        projectId: '/projects/one',
+        projectTitle: 'one',
+      },
+    ])
+    expect(initial.migration.unmatched).toBe(1)
+    expect(project(initial, '__ungrouped__').sessions.map((entry) => entry.id)).toContain(
+      's-inside',
+    )
+
+    const migratedState = {
+      ...internals.defaultState(),
+      sessionProjects: { 's-inside': '/projects/one' },
+    }
+    const migrated = internals.buildView({
+      workspaceSnapshot: base.workspaceSnapshot,
+      sessionSnapshot,
+      state: migratedState,
+    })
+    expect(project(migrated, '/projects/one').sessions.map((entry) => entry.id)).toContain(
+      's-inside',
+    )
+    expect(project(migrated, '__ungrouped__').sessions.map((entry) => entry.id)).not.toContain(
+      's-inside',
+    )
+    expect(migrated.migration.candidates).toEqual([])
+    expect(migrated.projectBySession.get('s-inside')?.key).toBe('/projects/one')
+  })
+
+  it('allows an external project mapping even when cwd does not match', () => {
+    const internals = loadClient().__internals
+    const base = snapshots()
+    const state = {
+      ...internals.defaultState(),
+      sessionProjects: { 's-loose': '/projects/one' },
+    }
+    const view = internals.buildView({
+      workspaceSnapshot: base.workspaceSnapshot,
+      sessionSnapshot: base.sessionSnapshot,
+      state,
+    })
+    expect(project(view, '/projects/one').sessions.map((entry) => entry.id)).toContain('s-loose')
+    expect(view.migration.candidates).toEqual([])
+    expect(view.migration.unmatched).toBe(0)
+    expect(view.projects.some((entry) => entry.isUngrouped)).toBe(false)
+    expect(view.projectBySession.get('s-loose')?.key).toBe('/projects/one')
+  })
+
+  it('ignores external session mappings outside Orca-like mode', () => {
+    const internals = loadClient().__internals
+    const base = snapshots()
+    const state = {
+      ...internals.defaultState(),
+      mode: 'workspace',
+      sessionProjects: { 's-loose': '/projects/one' },
+    }
+    const view = internals.buildView({
+      workspaceSnapshot: base.workspaceSnapshot,
+      sessionSnapshot: base.sessionSnapshot,
+      state,
+    })
+    expect(project(view, '/projects/one').sessions.map((entry) => entry.id)).not.toContain(
+      's-loose',
+    )
+    expect(project(view, '__ungrouped__').sessions.map((entry) => entry.id)).toContain('s-loose')
+    expect(view.migration.candidates).toEqual([])
   })
 
   it('shows Host-discovered worktrees when only the main workspace is registered', () => {

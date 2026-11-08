@@ -74,6 +74,16 @@ window.__ModuleLoader__.load({
       'project.sessions': '{n} sessions',
       'loose.title': 'Unassigned sessions',
       'loose.hint': 'Sessions outside every registered workspace.',
+      'migration.action': 'Migrate unassigned sessions…',
+      'migration.short': 'Migrate',
+      'migration.revert': 'Undo session migration',
+      'migration.title': 'Migrate unassigned sessions',
+      'migration.description':
+        'Detected {n} sessions for {projects} projects; {unmatched} could not be matched. This writes only an external project mapping; DSH workspaces and session ownership stay unchanged.',
+      'migration.confirm': 'Migrate {n}',
+      'migration.done': 'Migrated {n} sessions into projects',
+      'migration.reverted': 'Session migration cleared',
+      'migration.none': 'No unassigned session could be matched to a project.',
       'project.worktrees': '{n} worktrees',
       'project.worktreesTitle': 'Worktrees: {list}',
       'project.worktreesSection': 'Worktrees',
@@ -184,6 +194,16 @@ window.__ModuleLoader__.load({
       'project.sessions': '{n} 个会话',
       'loose.title': '未归属会话',
       'loose.hint': '这些会话不属于任何已注册工作区。',
+      'migration.action': '迁移未归属会话…',
+      'migration.short': '迁移',
+      'migration.revert': '撤销会话迁移',
+      'migration.title': '迁移未归属会话',
+      'migration.description':
+        '识别到 {n} 个会话可归入 {projects} 个项目，另有 {unmatched} 个无法匹配。此操作只写入外挂 projectId 映射，不会修改 DSH workspace 或会话归属。',
+      'migration.confirm': '迁移 {n} 条',
+      'migration.done': '已将 {n} 个会话归入项目',
+      'migration.reverted': '已清除会话迁移',
+      'migration.none': '没有可匹配到项目的未归属会话。',
       'project.worktrees': '{n} 个工作树',
       'project.worktreesTitle': '工作树：{list}',
       'project.worktreesSection': '工作树',
@@ -535,6 +555,30 @@ window.__ModuleLoader__.load({
       })
     }
 
+    function projectForLooseSession(session, projects) {
+      if (!session?.cwd) return null
+      const cwd = normalizePath(session.cwd)
+      let best = null
+      let bestLength = -1
+      for (const project of projects) {
+        if (project.isUngrouped) continue
+        const paths = [
+          project.path,
+          ...(project.memberPaths || []),
+          ...(project.worktrees || []).map((worktree) => worktree.path),
+        ]
+        for (const value of paths) {
+          if (!value) continue
+          const path = normalizePath(value)
+          if (cwd !== path && !isAncestor(path, cwd)) continue
+          if (path.length <= bestLength) continue
+          best = project
+          bestLength = path.length
+        }
+      }
+      return best
+    }
+
     function worktreeForSession(session, project, workspaceBySession) {
       const workspacePath =
         workspaceBySession && typeof workspaceBySession.get === 'function'
@@ -574,6 +618,7 @@ window.__ModuleLoader__.load({
         groups: [],
         assignments: {},
         projectNames: {},
+        sessionProjects: {},
         projectOrder: {},
         sessionOrder: {},
         collapsed: {},
@@ -609,6 +654,17 @@ window.__ModuleLoader__.load({
         for (const [key, value] of Object.entries(raw.assignments)) {
           if (typeof key === 'string' && typeof value === 'string' && value)
             next.assignments[key] = value
+        }
+      }
+
+      if (raw.sessionProjects && typeof raw.sessionProjects === 'object') {
+        let count = 0
+        for (const [sessionId, projectId] of Object.entries(raw.sessionProjects)) {
+          if (count >= 5000) break
+          if (typeof sessionId !== 'string' || typeof projectId !== 'string') continue
+          if (!sessionId || !projectId) continue
+          next.sessionProjects[sessionId] = projectId
+          count += 1
         }
       }
 
@@ -1027,6 +1083,7 @@ window.__ModuleLoader__.load({
           )
         projects.push({
           key: projectKey,
+          projectId: projectKey,
           workspaceId: primary ? primary.workspaceId : null,
           workspaceIds: group.members.map((member) => member.workspace.workspaceId),
           memberPaths,
@@ -1051,10 +1108,71 @@ window.__ModuleLoader__.load({
         if (activeOnly && !isActiveSession(summary, statusMap)) continue
         loose.push(summary)
       }
-      if (loose.length > 0) {
-        const ordered = sortSessions(loose, state, UNGROUPED)
+      const sessionProjects =
+        consolidate && state.sessionProjects && typeof state.sessionProjects === 'object'
+          ? state.sessionProjects
+          : {}
+      const adoptedByProject = new Map()
+      const migrationCandidates = []
+      const unmatchedLoose = []
+      const remainingLoose = []
+      for (const session of loose) {
+        if (!consolidate) {
+          remainingLoose.push(session)
+          unmatchedLoose.push(session)
+          continue
+        }
+        const manualId =
+          typeof sessionProjects[session.id] === 'string'
+            ? normalizePath(sessionProjects[session.id])
+            : null
+        if (manualId) {
+          const target = projects.find(
+            (project) => !project.isUngrouped && normalizePath(project.projectId) === manualId,
+          )
+          if (!target) {
+            remainingLoose.push(session)
+            unmatchedLoose.push(session)
+            continue
+          }
+          if (!adoptedByProject.has(target.key)) adoptedByProject.set(target.key, [])
+          adoptedByProject.get(target.key).push(session)
+          continue
+        }
+        const target = projectForLooseSession(session, projects)
+        if (target) {
+          migrationCandidates.push({
+            sessionId: session.id,
+            title: session.displayTitle || session.title || '',
+            projectId: target.projectId,
+            projectTitle: target.title || target.path || '',
+          })
+          remainingLoose.push(session)
+        } else {
+          remainingLoose.push(session)
+          unmatchedLoose.push(session)
+        }
+      }
+      for (const [key, sessions] of adoptedByProject) {
+        const target = projects.find((project) => project.key === key)
+        if (!target) continue
+        target.sessions = sortSessions(
+          [...target.sessions, ...sessions],
+          state,
+          target.key,
+          target.memberPaths,
+        )
+        target.pinnedFirst = pinFirst(target.sessions, pinned)
+        target.updatedAt = target.sessions.reduce(
+          (value, session) => Math.max(value, Number(session.updatedAt) || 0),
+          target.updatedAt,
+        )
+      }
+      if (remainingLoose.length > 0) {
+        const ordered = sortSessions(remainingLoose, state, UNGROUPED)
         projects.push({
           key: UNGROUPED,
+          projectId: UNGROUPED,
           workspaceId: null,
           workspaceIds: [],
           memberPaths: [],
@@ -1136,6 +1254,11 @@ window.__ModuleLoader__.load({
         searchResults: trimmed ? searchSessions(trimmed, projects, pinned) : [],
         projectBySession,
         workspaceBySession,
+        migration: {
+          candidates: migrationCandidates,
+          unmatched: unmatchedLoose.length,
+          adopted: Object.keys(sessionProjects).length,
+        },
         counts: {
           projects: projects.filter((project) => !project.isUngrouped).length,
           sessions: projects.reduce((value, project) => value + project.sessions.length, 0),
@@ -1617,8 +1740,31 @@ window.__ModuleLoader__.load({
     }
 
     function LooseSessions(props) {
-      const { project, t, actions, collapsed, onToggle, currentId, pinnedSet, archivedSet } = props
+      const {
+        project,
+        t,
+        actions,
+        collapsed,
+        onToggle,
+        currentId,
+        pinnedSet,
+        archivedSet,
+        migration,
+        onMigrate,
+      } = props
       if (!project || project.sessions.length === 0) return null
+      const hover =
+        migration && migration.candidates.length > 0
+          ? h(
+              'div',
+              { className: 'orca-group-actions' },
+              h(IconButton, {
+                icon: 'layers',
+                label: t('migration.action'),
+                onClick: onMigrate,
+              }),
+            )
+          : null
       return h(
         'section',
         { className: 'orca-group orca-group--loose' },
@@ -1645,6 +1791,7 @@ window.__ModuleLoader__.load({
             h('span', { className: 'orca-group-title' }, t('loose.title')),
             h(CountBadge, null, String(project.sessions.length)),
           ),
+          hover,
         ),
         collapsed
           ? null
@@ -1960,6 +2107,8 @@ window.__ModuleLoader__.load({
               currentId,
               pinnedSet,
               archivedSet,
+              migration: view.migration,
+              onMigrate: actions.migrateLoose,
             }),
           ),
         !view.hasProjects
@@ -2014,6 +2163,8 @@ window.__ModuleLoader__.load({
               currentId,
               pinnedSet,
               archivedSet,
+              migration: view.migration,
+              onMigrate: actions.migrateLoose,
             })
           : null,
         list.length === 0 && !loose
@@ -2058,6 +2209,8 @@ window.__ModuleLoader__.load({
               currentId,
               pinnedSet,
               archivedSet,
+              migration: view.migration,
+              onMigrate: actions.migrateLoose,
             })
           : null,
         view.tree.length === 0 && !loose
@@ -3113,12 +3266,62 @@ window.__ModuleLoader__.load({
           })
           items.push({ divider: true })
           items.push({
+            label: t('migration.action'),
+            icon: 'layers',
+            disabled: (view.migration?.candidates.length || 0) === 0,
+            onSelect: openMigrationDialog,
+          })
+          if (Object.keys(state.sessionProjects || {}).length > 0) {
+            items.push({
+              label: t('migration.revert'),
+              icon: 'restore',
+              onSelect: revertMigration,
+            })
+          }
+          items.push({ divider: true })
+          items.push({
             label: t('action.newGroup'),
             icon: 'groupAdd',
             onSelect: () => openNewGroupDialog(),
           })
         }
         openMenuAtRect(rect, items, 228)
+      }
+
+      const openMigrationDialog = () => {
+        const migration = view.migration || { candidates: [], unmatched: 0 }
+        if (migration.candidates.length === 0) {
+          showToast(t('migration.none'))
+          return
+        }
+        const projects = new Set(migration.candidates.map((candidate) => candidate.projectId)).size
+        setDialog({
+          key: `d${Date.now()}`,
+          kind: 'migration-confirm',
+          title: t('migration.title'),
+          description: t('migration.description', {
+            n: migration.candidates.length,
+            projects,
+            unmatched: migration.unmatched,
+          }),
+          confirm: t('migration.confirm', { n: migration.candidates.length }),
+        })
+      }
+      const applyMigration = () => {
+        const candidates = view.migration?.candidates || []
+        if (candidates.length === 0) return
+        setState((prev) => {
+          const sessionProjects = { ...(prev.sessionProjects || {}) }
+          for (const candidate of candidates) {
+            sessionProjects[candidate.sessionId] = candidate.projectId
+          }
+          return { ...prev, sessionProjects }
+        })
+        showToast(t('migration.done', { n: candidates.length }))
+      }
+      const revertMigration = () => {
+        setState((prev) => ({ ...prev, sessionProjects: {} }))
+        showToast(t('migration.reverted'))
       }
 
       const openNewGroupDialog = (assignPath) => {
@@ -3214,6 +3417,8 @@ window.__ModuleLoader__.load({
           Promise.all(workspaceIds.map((workspaceId) => deleteWorkspace(workspaceId))).catch(
             (error) => fail(error, 'toast.projectFailed'),
           )
+        } else if (current.kind === 'migration-confirm') {
+          applyMigration()
         } else if (current.kind === 'archive-confirm') {
           archiveById(current.sessionId, current.sessionTitle, true)
         }
@@ -3237,6 +3442,8 @@ window.__ModuleLoader__.load({
         setActiveOnly,
         moveProject,
         moveSession,
+        migrateLoose: openMigrationDialog,
+        revertLoose: revertMigration,
       }
 
       if (wide === false) return null

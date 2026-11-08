@@ -63,12 +63,19 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   order; filter archived sessions; search project and session titles. Orca-like
   sorting and dragging work before any custom group is created. Sessions outside
   registered workspaces remain accessible in grouped and workspace-tree views.
+- **External session migration.** In Orca-like mode, **Migrate unassigned
+  sessions…** matches those sessions to projects by `cwd` (longest project or
+  worktree path) and previews the matched and unmatched counts. It writes only a
+  browser-local `sessionId → projectId` mapping; DSH workspaces, `sessionIds`,
+  and session ownership stay unchanged. **Undo session migration** clears the
+  mapping.
 - **Session actions** include pin/unpin, archive/unarchive, open, and copy the
   Session ID. Project actions include a new session (per worktree), open the
   main workspace, rename the project label, delete the project, and move it to
   a group.
 - **Persistence.** Custom groups, assignments, manual project/session order,
-  collapse state, and view options are saved in the browser's `localStorage`
+  external session-to-project mappings, collapse state, and view options are
+  saved in the browser's `localStorage`
   under `dsh.orca-projects.v1` for the current DSH origin. Pins and archived
   state are Host-owned and shared with every sidebar surface.
 
@@ -94,6 +101,11 @@ DSH's mount prefix. The Host distinguishes confirmed non-repositories from
 missing paths and resolution errors: existing non-Git directories stay separate,
 while missing paths, errors, and an unavailable route retain the path-based
 fallback for nested `.worktrees` directories and Orca workspace folders.
+
+The migration tool is another overlay: it keeps `sessionId → projectId` in
+`localStorage`, so an unassigned session can appear under a project without
+being attached to that project's DSH workspace. Other clients and DSH's
+workspace registry keep their original state.
 
 ## Install
 
@@ -126,7 +138,7 @@ client-local:
 
 | Storage | Key | Contents |
 |---|---|---|
-| `localStorage` | `dsh.orca-projects.v1` | Grouping mode, sort/filter, custom groups, project assignments, project names, project and session order, collapse state |
+| `localStorage` | `dsh.orca-projects.v1` | Grouping mode, sort/filter, custom groups, project assignments, project names, external session mappings, project and session order, collapse state |
 
 Pins and archived sessions are not stored here; they live in the workspace
 controller and apply to every sidebar surface.
@@ -187,7 +199,10 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
   four choices in the project menu, without creating workspaces just to list
   them. Sessions outside every registered workspace appeared in a separate,
   collapsed **Unassigned sessions** section, not as an unassignable project;
-  expanding it showed their checkout and project chips. The project menu listed
+  expanding it showed their checkout and project chips. The migration dialog
+  detected 183 of those 193 sessions across 10 projects, applied the external
+  mapping (leaving 10 unmatched), and the Undo action restored all 193. The
+  project menu listed
   each worktree, renaming the project label persisted, and moving the project
   into a custom group kept it as one row. The two stale `.worktrees` entries
   whose directories no longer exist still grouped through the fallback.
@@ -213,8 +228,13 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
   Host route is unavailable, only the path patterns `.worktrees/`,
   `.worktree/`, `worktrees/`, and Orca's `workspaces/<project>/<worktree>`
   consolidate.
-- Worktree consolidation applies to Orca-like mode. The workspace and
-  workspace-tree modes intentionally keep DSH's directory-based grouping.
+- Worktree consolidation and the external session migration apply to Orca-like
+  mode. The workspace and workspace-tree modes intentionally keep DSH's
+  directory-based grouping and ignore the migration mapping.
+- The migration tool matches by `cwd` and only covers currently visible
+  sessions; it is a browser-local overlay, not a change to DSH's
+  `workspace.sessionIds`. It cannot attach an arbitrary session to a workspace
+  whose path differs from the session's `cwd`.
 - Deleting a consolidated project removes every workspace registration that
   belongs to it; files and sessions are kept. There is no per-worktree removal
   action in this version.

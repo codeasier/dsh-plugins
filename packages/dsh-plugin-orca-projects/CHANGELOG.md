@@ -44,3 +44,8 @@
 - Present sessions outside every registered workspace in an **Unassigned
   sessions** section instead of a synthetic **Ungrouped** project, so the bucket
   is not mistaken for a project that can be moved into a group.
+- Add an external `sessionId → projectId` overlay and a **Migrate unassigned
+  sessions…** tool. It matches sessions outside every workspace to projects by
+  `cwd`, previews matched/unmatched counts, persists the mapping in
+  `localStorage`, and can be undone. DSH workspaces and `sessionIds` are not
+  modified.
