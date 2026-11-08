@@ -30,6 +30,7 @@
 | 插件 | 功能 | 版本 |
 |---|---|---|
 | [`@codeasier/dsh-plugin-hello`](./packages/dsh-plugin-hello) | 注册一个可配置的 `hello` 工具，按名字打招呼。 | `0.1.0` |
+| [`@codeasier/dsh-plugin-orca-projects`](./packages/dsh-plugin-orca-projects) | 以项目为中心的侧栏，支持按仓库收拢 worktree、自定义分组与置顶会话架。 | `0.1.0` |
 <!-- plugins:end -->
 
 每个插件的 README 说明能力、配置和兼容范围。公共 kit 是编译进插件的源码库，
