@@ -6,8 +6,9 @@
  * one authenticated fetch route used to consolidate Git worktrees under one
  * project: the browser cannot read `.git` itself, so the Host resolves each
  * registered workspace with {@link resolveRepositoryResults} and returns the
- * repository identity. The route is optional: without it the browser keeps the
- * path-based fallback.
+ * repository identity, including checkouts recorded under `.git/worktrees` that
+ * DSH has not registered. The route is optional: without it the browser keeps
+ * the path-based fallback.
  *
  * @module @codeasier/dsh-plugin-orca-projects
  */

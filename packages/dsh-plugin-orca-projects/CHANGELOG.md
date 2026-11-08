@@ -33,3 +33,6 @@
 - Localize the Plugin Manager detail description: `locale/zh.json` declares
   `meta.detail` for `README.zh.md`, so Chinese shows the Chinese plugin
   description while English keeps `README.md`.
+- Discover every checkout recorded under `.git/worktrees`, even when DSH has no
+  workspace for it. Unregistered worktrees join the project's worktree count and
+  menu, and starting a session there registers the directory on demand.

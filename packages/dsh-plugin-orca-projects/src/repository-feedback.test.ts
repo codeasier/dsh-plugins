@@ -143,7 +143,7 @@ function viewFor(
 }
 
 function identity(path: string, main: boolean, worktree: string): RepositoryIdentity {
-  return { path, key: '/repo', root: '/repo', title: 'repo', main, worktree }
+  return { path, key: '/repo', root: '/repo', title: 'repo', main, worktree, worktrees: [] }
 }
 
 describe('PR #10 repository identity feedback', () => {
@@ -203,7 +203,17 @@ describe('PR #10 repository identity feedback', () => {
     const view = viewFor(
       client,
       [workspace('independent', path, [session.id])],
-      [{ path, key: path, root: path, title: 'independent', main: true, worktree: 'main' }],
+      [
+        {
+          path,
+          key: path,
+          root: path,
+          title: 'independent',
+          main: true,
+          worktree: 'main',
+          worktrees: [],
+        },
+      ],
       [session],
     )
     const project = view.projects[0]

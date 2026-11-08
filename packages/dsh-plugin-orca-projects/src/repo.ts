@@ -18,8 +18,21 @@
  * @module @codeasier/dsh-plugin-orca-projects
  */
 
-import { readFile, realpath, stat } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
+import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
+
+/** One checkout discovered under a repository, registered in DSH or not. */
+export interface RepositoryWorktree {
+  /** Absolute checkout directory. */
+  readonly path: string
+  /** `main` or the checkout directory name. */
+  readonly label: string
+  /** Current branch, when Git records one. */
+  readonly branch?: string
+  /** Whether this checkout is the repository's main checkout. */
+  readonly main: boolean
+}
 
 /** One workspace's repository identity, as sent to the browser half. */
 export interface RepositoryIdentity {
@@ -35,7 +48,12 @@ export interface RepositoryIdentity {
   readonly main: boolean
   /** `main` or the worktree name Git records for this checkout. */
   readonly worktree: string
+  /** Every checkout Git records for this repository, including unregistered ones. */
+  readonly worktrees: readonly RepositoryWorktree[]
 }
+
+/** Identity fields before repository-level worktree discovery. */
+type RepositoryBase = Omit<RepositoryIdentity, 'worktrees'>
 
 /** Payload accepted by the `resolve` host method. */
 export interface ResolveRepositoriesRequest {
@@ -75,16 +93,21 @@ export async function resolveRepositoryResults(
     unique.push(trimmed)
     if (unique.length >= 500) break
   }
-  return Promise.all(unique.map(resolveOne))
+  const worktreeCache = new Map<string, Promise<readonly RepositoryWorktree[]>>()
+  return Promise.all(unique.map((path) => resolveOne(path, worktreeCache)))
 }
 
 /** Resolve one workspace without conflating a failed probe with a negative one. */
-async function resolveOne(path: string): Promise<RepositoryResolution> {
+async function resolveOne(
+  path: string,
+  worktreeCache: Map<string, Promise<readonly RepositoryWorktree[]>>,
+): Promise<RepositoryResolution> {
   const absolute = normalizeInput(path)
   const real = await safeRealpath(absolute)
   const unresolved = (status: RepositoryResolution['status']): RepositoryResolution => ({
     ...identity(absolute, path, absolute, true, 'main'),
     status,
+    worktrees: [],
   })
   try {
     const directory = await stat(real)
@@ -99,10 +122,101 @@ async function resolveOne(path: string): Promise<RepositoryResolution> {
       : git.isFile()
         ? await fromGitFile(real, path)
         : undefined
-    return repository ? { ...repository, status: 'repository' } : unresolved('error')
+    if (!repository) return unresolved('error')
+    return {
+      ...repository,
+      status: 'repository',
+      worktrees: await discoverWorktrees(repository.root, worktreeCache),
+    }
   } catch (error) {
     return unresolved(isMissing(error) ? 'not-repository' : 'error')
   }
+}
+
+/**
+ * Enumerate the checkouts Git records for a repository by reading
+ * `<root>/.git/worktrees/<id>/gitdir` and `HEAD`. This finds linked worktrees
+ * even when DSH has never registered them as workspaces, and never invokes Git.
+ *
+ * @param root - canonical main checkout.
+ * @param cache - per-batch promise memo keyed by root.
+ * @returns the main checkout first, then each existing linked worktree.
+ */
+function discoverWorktrees(
+  root: string,
+  cache: Map<string, Promise<readonly RepositoryWorktree[]>>,
+): Promise<readonly RepositoryWorktree[]> {
+  const key = normalizePath(root)
+  const cached = cache.get(key)
+  if (cached) return cached
+  const pending = readWorktrees(root)
+  cache.set(key, pending)
+  return pending
+}
+
+/** Read the worktree administrative directory of one main checkout. */
+async function readWorktrees(root: string): Promise<readonly RepositoryWorktree[]> {
+  const gitDir = join(root, '.git')
+  const mainBranch = await readBranch(gitDir)
+  const main: RepositoryWorktree = {
+    path: root,
+    label: 'main',
+    main: true,
+    ...(mainBranch === undefined ? {} : { branch: mainBranch }),
+  }
+  let entries: Dirent[]
+  try {
+    entries = await readdir(join(gitDir, 'worktrees'), { withFileTypes: true })
+  } catch {
+    return [main]
+  }
+  const worktrees = [main]
+  const seen = new Set([normalizePath(root)])
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const adminDir = join(gitDir, 'worktrees', entry.name)
+    let rawGitFile: string
+    try {
+      rawGitFile = (await readFile(join(adminDir, 'gitdir'), 'utf8')).trim()
+    } catch {
+      continue
+    }
+    if (!rawGitFile) continue
+    const gitFile = await safeRealpath(
+      isAbsolute(rawGitFile) ? rawGitFile : resolve(adminDir, rawGitFile),
+    )
+    const checkoutPath = dirname(gitFile)
+    const checkout = normalizePath(checkoutPath)
+    if (seen.has(checkout)) continue
+    try {
+      const info = await stat(checkout)
+      if (!info.isDirectory()) continue
+    } catch {
+      continue
+    }
+    seen.add(checkout)
+    const branch = await readBranch(adminDir)
+    worktrees.push({
+      path: checkout,
+      label: basename(checkout) || entry.name,
+      main: false,
+      ...(branch === undefined ? {} : { branch }),
+    })
+  }
+  return worktrees
+}
+
+/** Read a checkout's current branch name from its administrative `HEAD`. */
+async function readBranch(dir: string): Promise<string | undefined> {
+  try {
+    const head = (await readFile(join(dir, 'HEAD'), 'utf8')).trim()
+    const match = /^ref:\s*refs\/heads\/(.+)$/u.exec(head)
+    if (match?.[1]) return match[1]
+    if (/^[0-9a-f]{7,40}$/iu.test(head)) return head.slice(0, 8)
+  } catch {
+    // Detached, unborn, or unreadable HEADs keep an empty branch label.
+  }
+  return undefined
 }
 
 /** ENOENT/ENOTDIR distinguish absence from access and other probe failures. */
@@ -117,10 +231,7 @@ function isMissing(error: unknown): boolean {
  * `commondir`; they stay projects of their own instead of merging into the
  * enclosing repository.
  */
-async function fromGitFile(
-  real: string,
-  requested: string,
-): Promise<RepositoryIdentity | undefined> {
+async function fromGitFile(real: string, requested: string): Promise<RepositoryBase | undefined> {
   let text: string
   try {
     text = await readFile(join(real, '.git'), 'utf8')
@@ -177,7 +288,7 @@ function identity(
   root: string,
   main: boolean,
   worktree: string,
-): RepositoryIdentity {
+): RepositoryBase {
   const canonicalKey = normalizePath(key)
   const canonicalRoot = normalizePath(root)
   return {

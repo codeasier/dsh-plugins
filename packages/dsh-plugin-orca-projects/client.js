@@ -479,6 +479,7 @@ window.__ModuleLoader__.load({
           title: entry.title || baseName(root) || path,
           main: entry.main === true,
           worktree: repositoryWorktree(entry, path),
+          worktrees: Array.isArray(entry.worktrees) ? entry.worktrees : [],
         }
       }
       return (
@@ -490,6 +491,44 @@ window.__ModuleLoader__.load({
           worktree: worktreeFromPath(path).label,
         }
       )
+    }
+
+    function projectWorktrees(group) {
+      const found = new Map()
+      for (const member of group.members) {
+        for (const entry of member.repo.worktrees || []) {
+          if (!entry || typeof entry.path !== 'string') continue
+          const path = normalizePath(entry.path)
+          if (!path || found.has(path)) continue
+          found.set(path, {
+            workspaceId: null,
+            path,
+            label: entry.label || worktreeFromPath(path).label || baseName(path),
+            main: entry.main === true,
+            branch: entry.branch,
+            title: baseName(path),
+            sessionCount: 0,
+            registered: false,
+          })
+        }
+        const discovered = (member.repo.worktrees || []).find(
+          (entry) => normalizePath(entry.path) === member.path,
+        )
+        found.set(member.path, {
+          workspaceId: member.workspace.workspaceId,
+          path: member.path,
+          label: repositoryWorktree(member.repo, member.path),
+          main: member.repo.main === true || member.path === normalizePath(member.repo.root),
+          branch: discovered?.branch,
+          title: member.workspace.title || baseName(member.path),
+          sessionCount: member.sessions.length,
+          registered: true,
+        })
+      }
+      return [...found.values()].sort((left, right) => {
+        if (left.main !== right.main) return left.main ? -1 : 1
+        return String(left.label).localeCompare(String(right.label))
+      })
     }
 
     function worktreeForSession(session, project, workspaceBySession) {
@@ -975,19 +1014,7 @@ window.__ModuleLoader__.load({
           group.title ||
           group.members[0]?.workspace?.title ||
           baseName(projectKey)
-        const worktrees = group.members
-          .map((member) => ({
-            workspaceId: member.workspace.workspaceId,
-            path: member.path,
-            label: repositoryWorktree(member.repo, member.path),
-            main: member.repo.main === true || member.path === normalizePath(member.repo.root),
-            title: member.workspace.title || baseName(member.path),
-            sessionCount: member.sessions.length,
-          }))
-          .sort((left, right) => {
-            if (left.main !== right.main) return left.main ? -1 : 1
-            return String(left.label).localeCompare(String(right.label))
-          })
+        const worktrees = projectWorktrees(group)
         const updatedAt =
           ordered.reduce((value, session) => Math.max(value, Number(session.updatedAt) || 0), 0) ||
           group.members.reduce(
@@ -2604,9 +2631,30 @@ window.__ModuleLoader__.load({
         if (!project.workspaceId) return
         startSessionService(project.workspaceId)
       }
-      const startSessionIn = (workspaceId) => {
-        if (!workspaceId) return
-        startSessionService(workspaceId)
+      const startSessionIn = async (worktree) => {
+        if (!worktree) return
+        try {
+          if (worktree.workspaceId) {
+            startSessionService(worktree.workspaceId)
+            return
+          }
+          const path = normalizePath(worktree.path)
+          const existing = (workspaceState.items || []).find(
+            (workspace) => normalizePath(workspace.path) === path,
+          )
+          if (existing?.workspaceId) {
+            startSessionService(existing.workspaceId)
+            return
+          }
+          const created = await createWorkspace(worktree.path)
+          if (!created?.workspaceId) {
+            showToast(t('toast.workspaceFailed'), 'error')
+            return
+          }
+          startSessionService(created.workspaceId)
+        } catch (error) {
+          fail(error, 'toast.workspaceFailed')
+        }
       }
       const openWorkspace = (project) => {
         if (!project.workspaceId) return
@@ -2848,7 +2896,7 @@ window.__ModuleLoader__.load({
                 name: worktree.label === 'main' ? t('project.worktreeMain') : worktree.label,
               }),
               icon: 'chat',
-              onSelect: () => startSessionIn(worktree.workspaceId),
+              onSelect: () => startSessionIn(worktree),
             })
           }
         } else {

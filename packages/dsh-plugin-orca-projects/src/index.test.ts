@@ -74,6 +74,12 @@ interface RepoEntry {
   title: string
   main: boolean
   worktree: string
+  worktrees?: Array<{
+    path: string
+    label: string
+    branch?: string
+    main: boolean
+  }>
 }
 
 interface ProjectView {
@@ -82,12 +88,14 @@ interface ProjectView {
   workspaceIds: string[]
   memberPaths: string[]
   worktrees: Array<{
-    workspaceId: string
+    workspaceId: string | null
     path: string
     label: string
+    branch?: string
     main: boolean
     title: string
     sessionCount: number
+    registered?: boolean
   }>
   groupId: string | null
   title: string | null
@@ -791,6 +799,58 @@ describe('orca view model', () => {
     expect(view.counts.projects).toBe(2)
   })
 
+  it('shows Host-discovered worktrees when only the main workspace is registered', () => {
+    const client = loadClient()
+    const internals = client.__internals
+    const main = '/projects/repo'
+    const feature = '/projects/repo/.worktrees/feature-a'
+    const workspaceSnapshot: WorkspaceSnapshot = {
+      items: [workspace('w-main', main, ['s-main'])],
+      archivedSessionIds: [],
+      pinnedSessionIds: [],
+      phase: 'ready',
+      state: 'idle',
+      error: null,
+    }
+    const sessionSnapshot: SessionSnapshot = {
+      ids: ['s-main'],
+      byId: { 's-main': summary('s-main', 'Main', NOW, main) },
+    }
+    const repoMap = new Map<string, RepoEntry>([
+      [
+        main,
+        {
+          path: main,
+          key: main,
+          root: main,
+          title: 'repo',
+          main: true,
+          worktree: 'main',
+          worktrees: [
+            { path: main, label: 'main', branch: 'main', main: true },
+            { path: feature, label: 'feature-a', branch: 'feature-a', main: false },
+          ],
+        },
+      ],
+    ])
+    const view = internals.buildView({
+      workspaceSnapshot,
+      sessionSnapshot,
+      repoMap,
+      state: internals.defaultState(),
+    })
+    const consolidated = project(view, main)
+    expect(consolidated.worktrees.map((entry) => entry.label)).toEqual(['main', 'feature-a'])
+    expect(consolidated.worktrees.find((entry) => entry.label === 'feature-a')).toMatchObject({
+      path: feature,
+      workspaceId: null,
+      registered: false,
+      branch: 'feature-a',
+      main: false,
+    })
+    expect(consolidated.sessions.map((entry) => entry.id)).toEqual(['s-main'])
+  })
+
   it.each(['workspace', 'workspace-tree', 'flat'])(
     'keeps checkout labels without consolidating directory groups in %s',
     (mode) => {
@@ -971,12 +1031,14 @@ describe('repository resolution', () => {
       const linked = join(main, '.worktrees', 'feature-a')
       await mkdir(linked, { recursive: true })
       await writeFile(join(linked, '.git'), `gitdir: ${join(git, 'worktrees', 'feature-a')}\n`)
+      await writeFile(join(git, 'worktrees', 'feature-a', 'gitdir'), `${join(linked, '.git')}\n`)
 
       const orca = join(base, 'orca', 'workspaces', 'msinsight', '2.0-review')
       await mkdir(join(git, 'worktrees', '2.0-review'), { recursive: true })
       await writeFile(join(git, 'worktrees', '2.0-review', 'commondir'), '../..\n')
       await mkdir(orca, { recursive: true })
       await writeFile(join(orca, '.git'), `gitdir: ${join(git, 'worktrees', '2.0-review')}\n`)
+      await writeFile(join(git, 'worktrees', '2.0-review', 'gitdir'), `${join(orca, '.git')}\n`)
 
       const plain = join(base, 'plain')
       await mkdir(plain)
@@ -1002,6 +1064,19 @@ describe('repository resolution', () => {
         worktree: '2.0-review',
       })
       expect(identities.find((entry) => entry.path === plain)).toBeUndefined()
+
+      const mainIdentity = identities.find((entry) => entry.path === main)
+      expect(mainIdentity?.worktrees.map((entry) => entry.label)).toEqual(
+        expect.arrayContaining(['main', 'feature-a', '2.0-review']),
+      )
+      expect(mainIdentity?.worktrees.find((entry) => entry.label === 'feature-a')).toMatchObject({
+        path: linked,
+        main: false,
+      })
+      expect(mainIdentity?.worktrees.find((entry) => entry.label === '2.0-review')).toMatchObject({
+        path: orca,
+        main: false,
+      })
     } finally {
       await rm(base, { recursive: true, force: true })
     }

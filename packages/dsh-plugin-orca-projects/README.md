@@ -23,8 +23,11 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   Orca's `~/orca/workspaces/<project>/<name>` layout and nested
   `.worktrees/<name>` directories, appear under one project row. A layers badge
   shows how many worktrees feed that project, and the project menu can start a
-  session in any one of them. A project's `...` menu also renames the project
-  label locally and deletes every workspace registration that belongs to it.
+  session in any one of them. The Host also discovers worktrees from
+  `.git/worktrees` even when DSH has no workspace for them; starting a session
+  in one registers its directory. A project's `...` menu also renames the
+  project label locally and deletes every workspace registration that belongs
+  to it.
 - **Pinned shelf.** Pin a session from its hover pin button or its `...` menu.
   It moves into the **已置顶** group at the very top. Under its project the same
   session stays in place, grayed, with a **置顶** badge. Opening a pinned session
@@ -176,7 +179,11 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
 - Worktree consolidation was rendered with the real registered workspaces in a
   scratch profile: the `msinsight` main checkout and its four Orca worktrees
   formed one project with a `5` worktree badge, and `dsh-TUI` plus its four
-  `.worktrees` entries formed another with a `5` badge. The project menu listed
+  `.worktrees` entries formed another with a `5` badge. The `dsh-plugins`
+  project had only its main workspace registered; the Host found its three
+  additional `.git/worktrees` checkouts and the row showed a `4` badge with all
+  four choices in the project menu, without creating workspaces just to list
+  them. The project menu listed
   each worktree, renaming the project label persisted, and moving the project
   into a custom group kept it as one row. The two stale `.worktrees` entries
   whose directories no longer exist still grouped through the fallback.
@@ -195,9 +202,11 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
 - Worktree identity is read from a `.git` entry at the workspace root; the Host
   does not scan parent directories. A workspace without its own `.git` entry
   stays a separate project, and a submodule is not merged into its enclosing
-  repository. If the Host route is unavailable, only the path patterns
-  `.worktrees/`, `.worktree/`, `worktrees/`, and Orca's
-  `workspaces/<project>/<worktree>` consolidate.
+  repository. Discovery of unregistered checkouts reads `.git/worktrees`; a
+  checkout whose directory no longer exists is omitted from that list. If the
+  Host route is unavailable, only the path patterns `.worktrees/`,
+  `.worktree/`, `worktrees/`, and Orca's `workspaces/<project>/<worktree>`
+  consolidate.
 - Worktree consolidation applies to Orca-like mode. The workspace and
   workspace-tree modes intentionally keep DSH's directory-based grouping.
 - Deleting a consolidated project removes every workspace registration that
