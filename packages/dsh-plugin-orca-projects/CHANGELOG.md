@@ -22,3 +22,6 @@
   `~/orca/workspaces/<project>/<name>`) join their repository. Project rows show
   a worktree count, the project menu starts a session in a chosen worktree, and
   project labels, groups, and ordering operate on the consolidated row.
+- Localize the Plugin Manager detail description: `locale/zh.json` declares
+  `meta.detail` for `README.zh.md`, so Chinese shows the Chinese plugin
+  description while English keeps `README.md`.
