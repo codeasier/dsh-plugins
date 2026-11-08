@@ -40,9 +40,13 @@ function mount(value = initial()) {
   let snapshot = { status: 'ready', value: structuredClone(value), revision: 1 }
   let failure: 'reject' | 'false' | null = null
   let afterAccept: (() => void) | null = null
+  let nextMutation: Promise<void> | null = null
   const writes: { ops: Op[]; revision: number | undefined; method: string }[] = []
   const mutate = async (ops: Op[], revision?: number, method = 'mutate') => {
     writes.push({ ops: structuredClone(ops), revision, method })
+    const gate = nextMutation
+    nextMutation = null
+    if (gate) await gate
     if (failure === 'reject') throw new Error('transport disconnected')
     if (failure === 'false' || (revision !== undefined && revision !== snapshot.revision))
       return false
@@ -190,8 +194,8 @@ function mount(value = initial()) {
     if (!found) throw new Error(`missing select ${label}`)
     return found
   }
-  const json = () => {
-    const found = all(section()).find(
+  const json = (kind = 'search') => {
+    const found = all(section(kind)).find(
       (node) => node.type === 'textarea' && String(node.props.placeholder).includes('x-tenant'),
     )
     if (!found) throw new Error('missing Other fields JSON')
@@ -212,6 +216,13 @@ function mount(value = initial()) {
     writes,
     afterAccept: (callback: () => void) => {
       afterAccept = callback
+    },
+    deferNext: () => {
+      let release!: () => void
+      nextMutation = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      return release
     },
     snapshot: () => snapshot,
     reject: (next: typeof failure) => {
@@ -396,6 +407,145 @@ describe('provider identity edits (4495421130)', () => {
       await ui.change(ui.select('Provider in use for Search'), 'b')
       expect(ui.writes).toHaveLength(0)
       expect(ui.snapshot().value.search.active).toBe('a')
+    },
+  )
+})
+
+describe('in-flight provider identity edits (4504537206)', () => {
+  it.each([
+    ['search', 'Name'],
+    ['search', 'JSON'],
+    ['fetch', 'Name'],
+    ['fetch', 'JSON'],
+  ] as const)(
+    'locks %s identity changes through %s until a switch settles',
+    async (kind, input) => {
+      const config = initial()
+      config[kind] = {
+        active: 'b',
+        providers: [
+          { id: 'a', vendor: 'url' },
+          { id: 'b', vendor: 'url' },
+        ],
+      }
+      const ui = mount(config)
+      await ui.click('Edit', kind)
+      const release = ui.deferNext()
+      const switching = ui.change(
+        ui.select(`Provider in use for ${kind === 'search' ? 'Search' : 'Fetch'}`),
+        'a',
+      )
+      const nameDisabled = ui.field('Nameid', kind).props.disabled
+      const jsonDisabled = ui.json(kind).props.disabled
+      try {
+        if (input === 'Name') await ui.change(ui.field('Nameid', kind), 'c')
+        else await ui.change(ui.json(kind), '{"id":"c"}')
+        await ui.change(ui.field('Display namelabel', kind), 'Local')
+      } finally {
+        release()
+        await switching
+      }
+      await ui.click('Save', kind)
+      expect(ui.snapshot().value[kind]).toMatchObject({
+        active: 'a',
+        providers: [{ id: 'a', label: 'Local' }, { id: 'b' }],
+      })
+      expect(ui.writes.map((write) => write.revision)).toEqual([1, 2])
+      expect(nameDisabled).toBe(true)
+      expect(jsonDisabled).toBe(true)
+      await ui.click('Edit', kind)
+      expect(ui.field('Nameid', kind).props.disabled).toBe(false)
+      expect(ui.json(kind).props.disabled).toBe(false)
+      if (input === 'Name') await ui.change(ui.field('Nameid', kind), 'c')
+      else await ui.change(ui.json(kind), '{"id":"c"}')
+      await ui.click('Save', kind)
+      expect(ui.snapshot().value[kind]).toMatchObject({
+        active: 'c',
+        providers: [{ id: 'c', label: 'Local' }, { id: 'b' }],
+      })
+    },
+  )
+
+  it.each([
+    ['search', 'Name'],
+    ['search', 'JSON'],
+    ['fetch', 'Name'],
+    ['fetch', 'JSON'],
+  ] as const)(
+    'keeps %s %s locked while the opposite section starts and settles a write',
+    async (kind, input) => {
+      const config = initial()
+      for (const key of ['search', 'fetch'] as const) {
+        config[key] = {
+          active: 'b',
+          providers: [
+            { id: 'a', vendor: 'url' },
+            { id: 'b', vendor: 'url' },
+          ],
+        }
+      }
+      const ui = mount(config)
+      await ui.click('Edit', kind)
+      await ui.change(ui.field('Display namelabel', kind), 'Local')
+      const release = ui.deferNext()
+      const switching = ui.change(
+        ui.select(`Provider in use for ${kind === 'search' ? 'Search' : 'Fetch'}`),
+        'a',
+      )
+      const releaseOther = ui.deferNext()
+      const otherSwitch = ui.change(
+        ui.select(`Provider in use for ${kind === 'search' ? 'Fetch' : 'Search'}`),
+        'a',
+      )
+      const lockedAfterStart =
+        ui.field('Nameid', kind).props.disabled && ui.json(kind).props.disabled
+      let lockedAfterSettlement: unknown
+      try {
+        if (input === 'Name') await ui.change(ui.field('Nameid', kind), 'c')
+        else await ui.change(ui.json(kind), '{"id":"c"}')
+        ui.reject('false')
+        releaseOther()
+        await otherSwitch
+        ui.reject(null)
+        lockedAfterSettlement =
+          ui.field('Nameid', kind).props.disabled && ui.json(kind).props.disabled
+        if (input === 'Name') await ui.change(ui.field('Nameid', kind), 'c')
+        else await ui.change(ui.json(kind), '{"id":"c"}')
+      } finally {
+        ui.reject(null)
+        releaseOther()
+        release()
+        await Promise.all([switching, otherSwitch])
+      }
+      await ui.click('Save', kind)
+      expect(ui.snapshot().value[kind]).toMatchObject({
+        active: 'a',
+        providers: [{ id: 'a', label: 'Local' }, { id: 'b' }],
+      })
+      expect(lockedAfterStart).toBe(true)
+      expect(lockedAfterSettlement).toBe(true)
+    },
+  )
+
+  it.each(['reject', 'false'] as const)(
+    'unlocks identity edits after a deferred %s',
+    async (failure) => {
+      const config = initial()
+      config.search.providers.push({ id: 'b', vendor: 'url' })
+      const ui = mount(config)
+      await ui.click('Edit')
+      ui.reject(failure)
+      const release = ui.deferNext()
+      const switching = ui.change(ui.select('Provider in use for Search'), 'b')
+      release()
+      await switching
+      expect(ui.field('Nameid').props.disabled).toBe(false)
+      expect(ui.json().props.disabled).toBe(false)
+      expect(ui.snapshot().value.search.active).toBe('a')
+      ui.reject(null)
+      await ui.change(ui.field('Nameid'), 'c')
+      await ui.click('Save')
+      expect(ui.snapshot().value.search.active).toBe('c')
     },
   )
 })

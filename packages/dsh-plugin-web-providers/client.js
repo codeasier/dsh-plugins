@@ -602,7 +602,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
       )
     }
 
-    function TextInput({ value, placeholder, mono, onChange }) {
+    function TextInput({ value, placeholder, mono, disabled, onChange }) {
       return h('input', {
         className: 'dsh-wp-input',
         style: mono ? { ...S.input, ...S.inputMono } : S.input,
@@ -611,7 +611,10 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
         placeholder: placeholder ?? '',
         spellCheck: false,
         autoComplete: 'off',
-        onChange: (event) => onChange(event.target.value),
+        disabled: disabled === true,
+        onChange: (event) => {
+          if (!disabled) onChange(event.target.value)
+        },
       })
     }
 
@@ -925,6 +928,8 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
       const [jsonOpen, setJsonOpen] = React.useState(false)
 
       const commitJson = (text) => {
+        // Other fields can override id, so it shares the Name field's write lock.
+        if (busy) return
         const kept = {}
         for (const [key, value] of Object.entries(provider)) if (KNOWN.has(key)) kept[key] = value
         if (text.trim() === '') {
@@ -1024,6 +1029,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                     value: provider.id,
                     placeholder: 'my-router',
                     mono: true,
+                    disabled: busy,
                     onChange: (value) => onChange(put(provider, 'id', value)),
                   }),
                 ),
@@ -1129,6 +1135,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                         value: json,
                         spellCheck: false,
                         placeholder: '{ "headers": { "x-tenant": "team-a" } }',
+                        disabled: busy,
                         onChange: (event) => commitJson(event.target.value),
                       }),
                       jsonError === '' ? null : h('span', { style: S.error }, jsonError),
@@ -1221,7 +1228,8 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
 
       const [draft, setDraft] = React.useState(null)
       const [openRow, setOpenRow] = React.useState('')
-      const [busy, setBusy] = React.useState('')
+      // One section's RPC must not release another section's identity lock.
+      const [busy, setBusy] = React.useState({})
       const [notice, setNotice] = React.useState(null)
 
       React.useEffect(() => {
@@ -1271,8 +1279,8 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
 
       const save = async (kindKey) => {
         const entry = draft[kindKey]
-        if (busy === kindKey || invalidJson(entry)) return
-        setBusy(kindKey)
+        if (busy[kindKey] === true || invalidJson(entry)) return
+        setBusy((current) => ({ ...current, [kindKey]: true }))
         try {
           const ok = await form.mutate(
             [{ op: 'set', path: [kindKey], value: entry.value }],
@@ -1298,19 +1306,19 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
         } catch {
           setNotice({ kind: kindKey, tone: 'error', text: t('status.failed') })
         } finally {
-          setBusy('')
+          setBusy((current) => ({ ...current, [kindKey]: false }))
         }
       }
 
       const applyActive = async (kindKey, id) => {
         const base = normalize(saved[kindKey])
         if (
-          busy === kindKey ||
+          busy[kindKey] === true ||
           !sameProviderIds(draft[kindKey].value, base) ||
           (id !== '' && !base.providers.some((entry) => entry.id === id))
         )
           return
-        setBusy(kindKey)
+        setBusy((current) => ({ ...current, [kindKey]: true }))
         try {
           const ok = await form.mutate(
             [{ op: 'set', path: [kindKey, 'active'], value: id }],
@@ -1345,7 +1353,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
         } catch {
           setNotice({ kind: kindKey, tone: 'error', text: t('status.failed') })
         } finally {
-          setBusy('')
+          setBusy((current) => ({ ...current, [kindKey]: false }))
         }
       }
 
@@ -1443,7 +1451,9 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                 width: 190,
                 ariaLabel: t('a11y.activeFor', { kind: t(kind.titleKey) }),
                 disabled:
-                  busy === kind.key || named.length === 0 || !sameProviderIds(value, persisted),
+                  busy[kind.key] === true ||
+                  named.length === 0 ||
+                  !sameProviderIds(value, persisted),
                 options: [
                   {
                     value: '',
@@ -1474,7 +1484,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                     providers,
                     isActive: index === activeIndex,
                     open: openRow === `${kind.key}:${index}`,
-                    busy: busy === kind.key,
+                    busy: busy[kind.key] === true,
                     invalid,
                     jsonDraft: entry.json[index],
                     onJsonChange: (edit) =>
@@ -1511,7 +1521,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
               {
                 type: 'button',
                 className: 'dsh-wp-btn dsh-wp-outline',
-                disabled: busy === kind.key,
+                disabled: busy[kind.key] === true,
                 onClick: () => addProvider(kind),
               },
               plusIcon(),
@@ -1531,7 +1541,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                     {
                       type: 'button',
                       className: 'dsh-wp-btn dsh-wp-outline',
-                      disabled: busy === kind.key,
+                      disabled: busy[kind.key] === true,
                       onClick: () => {
                         restore(kind.key)
                         setOpenRow('')
@@ -1546,10 +1556,10 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                     {
                       type: 'button',
                       className: 'dsh-wp-btn dsh-wp-primary dsh-wp-btn-sm',
-                      disabled: busy === kind.key || invalid,
+                      disabled: busy[kind.key] === true || invalid,
                       onClick: () => save(kind.key),
                     },
-                    busy === kind.key ? t('action.saving') : t('action.save'),
+                    busy[kind.key] === true ? t('action.saving') : t('action.save'),
                   )
                 : null,
             ),
