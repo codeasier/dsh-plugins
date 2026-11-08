@@ -27,6 +27,9 @@
 ## 插件目录
 
 <!-- plugins:start -->
+| 插件 | 功能 | 版本 |
+|---|---|---|
+| [`@codeasier/dsh-plugin-hello`](./packages/dsh-plugin-hello) | 注册一个可配置的 `hello` 工具，按名字打招呼。 | `0.1.0` |
 <!-- plugins:end -->
 
 每个插件的 README 说明能力、配置和兼容范围。公共 kit 是编译进插件的源码库，
@@ -118,6 +121,8 @@ bundle。平台仍处于 pre-1.0，这个范围表示“已验证”，而不是
 
 ## 文档
 
+英文文档是规范来源；除“中文快速入门”外，以下链接均指向英文页面。
+
 - [快速开始](docs/getting-started.md)
 - [架构](docs/architecture.md)
 - [插件结构](docs/plugin-anatomy.md)
@@ -126,6 +131,7 @@ bundle。平台仍处于 pre-1.0，这个范围表示“已验证”，而不是
 - [构建与发布](docs/build-and-release.md)
 - [测试](docs/testing.md)
 - [故障排查](docs/troubleshooting.md)
+- [FAQ](docs/faq.md)
 - [约定](docs/conventions.md)
 - [中文快速入门](docs/zh/README.md)
 - [安全](SECURITY.md) · [贡献指南](CONTRIBUTING.md) · [维护者手册](docs/maintainers.md)

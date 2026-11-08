@@ -9,7 +9,9 @@ match the packages on `main`.
 
 | If you want to… | Read |
 |---|---|
+| Get a quick answer | [FAQ](faq.md) |
 | Install a plugin into the CLI or Desktop | [Install on DSH CLI](install/dsh.md) · [Install on Desktop](install/desktop.md) |
+| Read the Chinese quick start | [中文快速入门](zh/README.md) |
 | Hack on the repository | [Getting started](getting-started.md) |
 | Understand why the repo is shaped this way | [Architecture](architecture.md) |
 | Add a plugin | [Getting started § add a plugin](getting-started.md#add-a-plugin) · [Conventions](conventions.md) |
@@ -41,7 +43,6 @@ match the packages on `main`.
 | [Conventions](conventions.md) | Naming, versions, dependencies, docs, and the machine-enforced rules. |
 | [Security](security.md) | The trust model, secret handling, and reporting a vulnerability. |
 | [ADR index](adr/README.md) | Accepted decisions and the template for new ones. |
-| [中文文档](zh/README.md) | 面向中文贡献者的快速入门。 |
 
 ## Canonical sources
 

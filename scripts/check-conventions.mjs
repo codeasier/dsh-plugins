@@ -234,7 +234,7 @@ for (const target of REGISTRY_TARGETS) {
   try {
     after = replaceRegistryRegion(
       before,
-      renderPluginTable(packages, { linkBase: target.linkBase }),
+      renderPluginTable(packages, { linkBase: target.linkBase, locale: target.locale }),
       target.file,
     )
   } catch (error) {

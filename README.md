@@ -136,9 +136,10 @@ states what was tested, not what merely happens to load. See
 - [Build and release](docs/build-and-release.md)
 - [Testing](docs/testing.md)
 - [Troubleshooting](docs/troubleshooting.md)
+- [FAQ](docs/faq.md)
 - [Conventions](docs/conventions.md)
 - [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) · [Maintainer runbook](docs/maintainers.md)
-- [中文文档](docs/zh/README.md)
+- [中文快速入门](docs/zh/README.md)
 
 ## Security
 

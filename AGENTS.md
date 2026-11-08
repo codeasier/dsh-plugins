@@ -29,8 +29,8 @@ Do not invent alternative build or publish commands. CI runs the same scripts.
    not edit generated files in place; edit `templates/plugin/` when the template
    itself must change.
 2. **Never edit the plugin catalog by hand.** It lives between
-   `<!-- plugins:start -->` and `<!-- plugins:end -->` in `README.md` and
-   `docs/plugins.md`; run `pnpm sync:registry`.
+   `<!-- plugins:start -->` and `<!-- plugins:end -->` in `README.md`,
+   `README.zh.md`, and `docs/plugins.md`; run `pnpm sync:registry`.
 3. **DSH packages are peers.** Never move `@deepseek-ai/dsh-*` into
    `dependencies` or bundle them; a second instance breaks service injection.
 4. **Every plugin declares `engines.dsh`.** Set it to the DSH versions actually

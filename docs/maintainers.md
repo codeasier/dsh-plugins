@@ -90,7 +90,7 @@ npm deprecate @codeasier/dsh-plugin-old "Superseded by @codeasier/dsh-plugin-new
 
 - Deprecate, then publish a final version whose README points to the successor.
 - Remove the package from the catalog only after it is deprecated, and say so in
-  the root README.
+  the root README files.
 - Do not unpublish unless a security incident requires it and npm policy allows
   it.
 

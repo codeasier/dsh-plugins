@@ -1,11 +1,14 @@
 # 中文文档
 
+[English](../README.md) | 中文
+
 本仓库为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 （`dsh`）维护一组社区插件。每个插件都是独立的 npm 包，拥有自己的版本、
 CHANGELOG、兼容范围和发布流程；公共工具放在 `@codeasier/dsh-plugin-kit`。
 
-英文文档是规范来源；本页是中文快速入门，行为与命令以英文文档和实际安装的
-DSH 为准。
+英文文档是规范来源；本页是中文快速入门，完整文档见
+[English documentation](../README.md)，行为与命令以英文文档和实际安装的 DSH
+为准。
 
 ## 安装插件
 
@@ -62,7 +65,7 @@ pnpm new my-panel --ui --description "在输入框下方增加状态面板。"
 ```
 
 生成器会创建 `packages/dsh-plugin-my-plugin/`，包括入口、测试、bundle patch、
-中英文 locale、图标、README 和 CHANGELOG，并自动更新 README 与插件目录。
+中英文 locale、图标、README 和 CHANGELOG，并自动更新中英文 README 与插件目录。
 它不会覆盖已有目录。
 
 生成后：
@@ -151,6 +154,7 @@ pnpm install:local dsh-plugin-my-plugin --profile web
 | [Client UI](../client-ui.md) | 浏览器端 loader、slot、主题、模块与验证 |
 | [Testing](../testing.md) | 单测、打包检查、组合冒烟测试、桌面端矩阵 |
 | [Troubleshooting](../troubleshooting.md) | 版本拒绝、缺少 bundle、重启、桌面端锁 |
+| [FAQ](../faq.md) | 常见设计、升级与兼容问题 |
 | [Conventions](../conventions.md) | 命名、依赖、版本、文档、评审清单 |
 | [Security](../security.md) | 信任模型、密钥、供应链、漏洞报告 |
 | [Maintainer runbook](../maintainers.md) | 仓库设置、npm 权限、发布值班 |

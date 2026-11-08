@@ -127,8 +127,9 @@ Every plugin README contains:
 Repository-level behavior changes update `docs/`. A new decision that affects
 multiple packages gets an ADR in `docs/adr/`.
 
-The catalog in the root README and `docs/plugins.md` is generated. Never edit it
-by hand; run `pnpm sync:registry`.
+The catalog in the root README files (`README.md`, `README.zh.md`) and
+`docs/plugins.md` is generated. Never edit it by hand; run
+`pnpm sync:registry`.
 
 ## Versions and compatibility
 
