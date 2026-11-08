@@ -1428,6 +1428,7 @@ window.__ModuleLoader__.load({
         pinned,
         archived,
         current,
+        hideProject = false,
       } = props
       const statusMap = React.useContext(SessionStatusContext)
       const workspaceBySession = React.useContext(WorkspacePathContext)
@@ -1479,7 +1480,7 @@ window.__ModuleLoader__.load({
         ? h('span', { className: 'orca-session-hint is-archived' }, t('session.archivedHint'))
         : null
       const projectBadge =
-        meta && !(worktree && worktree.label === meta)
+        !hideProject && meta && !(worktree && worktree.label === meta)
           ? h(
               'span',
               { className: 'orca-session-project' },
@@ -1869,20 +1870,22 @@ window.__ModuleLoader__.load({
                     : h(
                         'div',
                         { className: 'orca-loose-workspace-body' },
-                        group.sessions.map((session) =>
-                          h(SessionRow, {
+                        group.sessions.map((session) => {
+                          const isPinned = pinnedSet.has(session.id)
+                          return h(SessionRow, {
                             key: session.id,
                             session,
                             project,
                             t,
                             actions,
                             variant: 'flat',
-                            pinned: pinnedSet.has(session.id),
+                            hideProject: !isPinned,
+                            pinned: isPinned,
                             archived: archivedSet.has(session.id),
                             current: currentId === session.id,
                             currentId,
-                          }),
-                        ),
+                          })
+                        }),
                       ),
                 )
               }),

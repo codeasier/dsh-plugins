@@ -45,7 +45,8 @@
   sessions** section instead of a synthetic **Ungrouped** project, so the bucket
   is not mistaken for a project that can be moved into a group.
 - Group sessions in the **Unassigned sessions** section by workspace/directory
-  with collapsible headers instead of rendering one flat list.
+  with collapsible headers instead of rendering one flat list, and omit the
+  redundant project chip on those rows unless the session is pinned.
 - Add an external `sessionId → projectId` overlay and a **Migrate unassigned
   sessions…** tool. It matches sessions outside every workspace to projects by
   `cwd`, previews matched/unmatched counts, persists the mapping in

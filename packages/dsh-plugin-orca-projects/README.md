@@ -63,6 +63,10 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   order; filter archived sessions; search project and session titles. Orca-like
   sorting and dragging work before any custom group is created. Sessions outside
   registered workspaces remain accessible in grouped and workspace-tree views.
+  In the **Unassigned sessions** section they are grouped by workspace (or by
+  `cwd` when no workspace matches). Rows inside a group show only their checkout
+  label because the group already names the workspace; a pinned row keeps its
+  project chip so the pinned shelf stays unambiguous.
 - **External session migration.** In Orca-like mode, **Migrate unassigned
   sessions…** matches those sessions to projects by `cwd` (longest project or
   worktree path) and previews the matched and unmatched counts. It writes only a
@@ -201,7 +205,8 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
   collapsed **Unassigned sessions** section, not as an unassignable project;
   expanding it showed 18 collapsible workspace groups (for example
   `cc-workspace` with 58 sessions) rather than one flat list, and expanding a
-  group showed its checkout and project chips. The migration dialog
+  group showed its checkout label with the project chip omitted; a pinned row
+  kept its project chip. The migration dialog
   detected 183 of those 193 sessions across 10 projects, applied the external
   mapping (leaving 10 unmatched), and the Undo action restored all 193. The
   project menu listed
