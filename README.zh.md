@@ -30,6 +30,7 @@
 | 插件 | 功能 | 版本 |
 |---|---|---|
 | [`@codeasier/dsh-plugin-hello`](./packages/dsh-plugin-hello) | 注册一个可配置的 `hello` 工具，按名字打招呼。 | `0.1.0` |
+| [`@codeasier/dsh-plugin-web-providers`](./packages/dsh-plugin-web-providers) | 让 web_search 与 web_fetch 指向 9Router、Tavily、Brave、Exa、SearXNG 或任意自定义 URL，可在设置页切换。 | `0.1.0` |
 <!-- plugins:end -->
 
 每个插件的 README 说明能力、配置和兼容范围。公共 kit 是编译进插件的源码库，
