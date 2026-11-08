@@ -6,10 +6,24 @@ import { describe, expect, it, vi } from 'vitest'
 
 type Props = Record<string, unknown>
 type Component = (props: Props) => React.ReactNode
+// DSH 0.2.2-rc.1 StoredEntry keeps locale/inject outside its dispatch options.
 interface Entry {
-  options: Props
+  options: {
+    key?: string
+    id?: string
+    order?: number
+    label?: string | (() => string)
+    priority?: number
+  }
+  locale?: string
   inject?: () => Props
   component?: Component
+}
+
+type RegistrationOptions = Entry['options'] & {
+  name: string
+  locale?: string
+  inject?: () => Props
 }
 
 function source<T>(initial: T) {
@@ -168,13 +182,15 @@ function setup(wide = true) {
   // DSH 0.2.2-rc.1 ui-workspace exposes these private controls through its raw
   // sidebar slot entry's inject(). session.search resolves to controls.search.
   const controls = source({ searchRequest: 0, addRequested: false })
+  vi.spyOn(controls, 'subscribe')
   const search = () =>
     controls.set({
       ...controls.getSnapshot(),
       searchRequest: controls.getSnapshot().searchRequest + 1,
     })
   const shipped: Entry = {
-    options: { name: 'sidebar.workspaces', locale: 'workspace' },
+    options: {},
+    locale: 'workspace',
     inject: vi.fn(() => ({ requestSearch: search, hooks: { workspaceShortcuts: controls } })),
   }
   const entries: Entry[] = [shipped]
@@ -209,8 +225,20 @@ function setup(wide = true) {
       inject(_name: string, factory: () => () => void) {
         disposers.push(factory())
       },
-      register(options: Props, component: Component) {
-        sidebar = { options, component, inject: options.inject as () => Props }
+      register(options: RegistrationOptions, component: Component) {
+        const { key, id, order, label, priority, locale, inject } = options
+        sidebar = {
+          options: {
+            ...(key !== undefined ? { key } : {}),
+            ...(id !== undefined ? { id } : {}),
+            ...(order !== undefined ? { order } : {}),
+            ...(label !== undefined ? { label } : {}),
+            ...(priority !== undefined ? { priority } : {}),
+          },
+          ...(locale !== undefined ? { locale } : {}),
+          ...(inject !== undefined ? { inject } : {}),
+          component,
+        }
         entries.push(sidebar)
         changed()
         return () => {
@@ -274,6 +302,30 @@ function setup(wide = true) {
     },
   }
 }
+
+describe('PR #10 feedback 4506130648: stored slot entry contract', () => {
+  it('injects and subscribes to the top-level workspace locale entry', () => {
+    const test = setup()
+    try {
+      expect(test.shipped.locale).toBe('workspace')
+      expect(test.shipped.options).not.toHaveProperty('locale')
+      expect.soft(test.shipped.inject).toHaveBeenCalledTimes(1)
+      expect.soft(test.controls.subscribe).toHaveBeenCalledTimes(1)
+      expect(test.controls.listeners.size).toBe(1)
+      test.changed()
+      expect(test.shipped.inject).toHaveBeenCalledTimes(1)
+      expect(test.controls.subscribe).toHaveBeenCalledTimes(1)
+      test.search()
+      test.render()
+      expect(test.header().searchOpen).toBe(true)
+      expect(test.focus).toHaveBeenCalledTimes(1)
+    } finally {
+      test.dispose()
+    }
+    expect(test.controls.listeners.size).toBe(0)
+    expect(test.slotListeners.size).toBe(0)
+  })
+})
 
 describe('PR #10 feedback 4506000337: shipped session.search bridge', () => {
   it.each([
@@ -363,7 +415,7 @@ describe('PR #10 feedback 4506000337: shipped session.search bridge', () => {
       const unrelated = vi.fn(() => {
         throw new Error('Unrelated slot injector must not run')
       })
-      test.entries.push({ options: { locale: 'another-plugin' }, inject: unrelated })
+      test.entries.push({ options: {}, locale: 'another-plugin', inject: unrelated })
       test.changed()
       test.controls.set({ ...test.controls.getSnapshot(), addRequested: true })
       test.render()
@@ -380,7 +432,8 @@ describe('PR #10 feedback 4506000337: shipped session.search bridge', () => {
     const test = setup()
     try {
       test.entries.splice(test.entries.indexOf(test.shipped), 1, {
-        options: { locale: 'workspace' },
+        options: {},
+        locale: 'workspace',
         inject: () => {
           throw new Error('Shipped controls unavailable')
         },
@@ -418,7 +471,8 @@ describe('PR #10 feedback 4506000337: shipped session.search bridge', () => {
       test.changed()
       expect(test.controls.listeners.size).toBe(0)
       test.entries.push({
-        options: { locale: 'workspace' },
+        options: {},
+        locale: 'workspace',
         inject: () => ({ hooks: { workspaceShortcuts: replacement } }),
       })
       test.changed()

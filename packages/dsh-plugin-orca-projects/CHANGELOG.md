@@ -2,6 +2,11 @@
 
 ## 0.1.0
 
+- Read the shipped sidebar entry's top-level locale when bridging session search,
+  with regression fixtures matching the DSH slot-entry contract.
+- Validate discovered worktrees' `.git` backlinks before listing them, excluding
+  stale records whose checkout path has been reused by an ordinary directory or
+  another repository.
 - Prioritize waiting-for-user status over running, retain loose sessions in
   grouped/tree views, and enable sorting and dragging without custom groups.
 - Keep complete repository membership and main-workspace action targets when
@@ -36,3 +41,6 @@
 - Discover every checkout recorded under `.git/worktrees`, even when DSH has no
   workspace for it. Unregistered worktrees join the project's worktree count and
   menu, and starting a session there registers the directory on demand.
+- Present sessions outside every registered workspace in an **Unassigned
+  sessions** section instead of a synthetic **Ungrouped** project, so the bucket
+  is not mistaken for a project that can be moved into a group.

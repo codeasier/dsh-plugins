@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join, relative } from 'node:path'
 import { runInNewContext } from 'node:vm'
 
 import * as React from 'react'
@@ -519,9 +519,10 @@ describe('sidebar review regressions', () => {
     const html = renderSidebar({
       mode,
       groups: [{ id: 'g-empty', name: 'Empty group' }],
-      collapsed: { 'p:__ungrouped__': false },
+      collapsed: { loose: false },
     })
-    expect(html).toContain('data-project-key="__ungrouped__"')
+    expect(html).toContain('orca-group--loose')
+    expect(html).not.toContain('data-project-key="__ungrouped__"')
     expect(html.match(/data-session-id="s-loose"/g)).toHaveLength(1)
   })
 
@@ -1020,6 +1021,98 @@ describe('orca view model', () => {
 })
 
 describe('repository resolution', () => {
+  async function withFixture(run: (base: string) => Promise<void>): Promise<void> {
+    const temporary = await realpath(tmpdir())
+    const base = await realpath(await mkdtemp(join(temporary, 'orca-repo-')))
+    try {
+      await run(base)
+    } finally {
+      expect(dirname(base)).toBe(temporary)
+      expect(basename(base)).toMatch(/^orca-repo-/u)
+      expect(await realpath(base)).toBe(base)
+      await rm(base, { recursive: true, force: true })
+    }
+  }
+
+  async function linkedCheckout(main: string, checkout: string): Promise<string> {
+    const adminDir = join(main, '.git', 'worktrees', basename(checkout))
+    await mkdir(adminDir, { recursive: true })
+    await mkdir(checkout, { recursive: true })
+    await writeFile(join(adminDir, 'commondir'), '../..\n')
+    await writeFile(join(adminDir, 'HEAD'), `ref: refs/heads/${basename(checkout)}\n`)
+    await writeFile(join(adminDir, 'gitdir'), `${join(checkout, '.git')}\n`)
+    await writeFile(join(checkout, '.git'), `gitdir: ${adminDir}\n`)
+    return adminDir
+  }
+
+  it.each([
+    'ordinary directory',
+    'another repository',
+    'malformed marker',
+    'foreign linked checkout',
+  ])('does not discover a deleted checkout reused by %s', async (replacement) => {
+    await withFixture(async (base) => {
+      const main = join(base, 'repo')
+      const valid = join(base, 'valid')
+      const reused = join(base, 'reused')
+      await linkedCheckout(main, valid)
+      await linkedCheckout(main, reused)
+
+      expect(dirname(reused)).toBe(base)
+      expect(await realpath(reused)).toBe(reused)
+      await rm(reused, { recursive: true })
+      await mkdir(reused)
+      if (replacement === 'another repository') {
+        await mkdir(join(reused, '.git'))
+        await writeFile(join(reused, '.git', 'HEAD'), 'ref: refs/heads/other\n')
+      } else if (replacement === 'malformed marker') {
+        await writeFile(join(reused, '.git'), 'not a gitdir pointer\n')
+      } else if (replacement === 'foreign linked checkout') {
+        await linkedCheckout(join(base, 'other-repo'), reused)
+      }
+
+      const [repository] = await resolveRepositories([main])
+      expect(repository?.worktrees.map((entry) => entry.path)).toEqual([main, valid])
+      expect(repository?.worktrees.find((entry) => entry.path === valid)).toMatchObject({
+        label: 'valid',
+        branch: 'valid',
+        main: false,
+      })
+    })
+  })
+
+  it.each(['relative', 'symlink'])(
+    'discovers a valid linked checkout with %s Git pointers',
+    async (kind) => {
+      await withFixture(async (base) => {
+        const main = join(base, 'repo')
+        const checkout = join(base, 'valid')
+        const adminDir = await linkedCheckout(main, checkout)
+        if (kind === 'relative') {
+          await writeFile(
+            join(adminDir, 'gitdir'),
+            `${relative(adminDir, join(checkout, '.git'))}\n`,
+          )
+          await writeFile(join(checkout, '.git'), `gitdir: ${relative(checkout, adminDir)}\n`)
+        } else {
+          const mainAlias = join(base, 'repo-alias')
+          const checkoutAlias = join(base, 'checkout-alias')
+          await symlink(main, mainAlias, 'dir')
+          await symlink(checkout, checkoutAlias, 'dir')
+          await writeFile(join(adminDir, 'gitdir'), `${join(checkoutAlias, '.git')}\n`)
+          await writeFile(
+            join(checkout, '.git'),
+            `gitdir: ${join(mainAlias, '.git', 'worktrees', 'valid')}\n`,
+          )
+        }
+
+        const [repository] = await resolveRepositories([main])
+        expect(repository?.worktrees.map((entry) => entry.path)).toEqual([main, checkout])
+        expect(repository?.worktrees[1]).toMatchObject({ branch: 'valid', main: false })
+      })
+    },
+  )
+
   it('maps a main checkout and linked worktrees to one repository', async () => {
     const base = await realpath(await mkdtemp(join(tmpdir(), 'orca-repo-')))
     try {

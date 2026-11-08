@@ -191,6 +191,12 @@ async function readWorktrees(root: string): Promise<readonly RepositoryWorktree[
     try {
       const info = await stat(checkout)
       if (!info.isDirectory()) continue
+      // A stale admin record can outlive its checkout or point at a reused path.
+      const marker = await readFile(join(checkout, '.git'), 'utf8')
+      const match = /^\s*gitdir:\s*(.+?)\s*$/mu.exec(marker)
+      if (!match?.[1]) continue
+      const backlink = await safeRealpath(resolve(checkout, match[1]))
+      if (backlink !== (await safeRealpath(adminDir))) continue
     } catch {
       continue
     }

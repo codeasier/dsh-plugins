@@ -72,6 +72,8 @@ window.__ModuleLoader__.load({
       'project.renamePlaceholder': 'Project name',
       'project.ungrouped': 'Ungrouped',
       'project.sessions': '{n} sessions',
+      'loose.title': 'Unassigned sessions',
+      'loose.hint': 'Sessions outside every registered workspace.',
       'project.worktrees': '{n} worktrees',
       'project.worktreesTitle': 'Worktrees: {list}',
       'project.worktreesSection': 'Worktrees',
@@ -180,6 +182,8 @@ window.__ModuleLoader__.load({
       'project.renamePlaceholder': '项目名称',
       'project.ungrouped': '未分组',
       'project.sessions': '{n} 个会话',
+      'loose.title': '未归属会话',
+      'loose.hint': '这些会话不属于任何已注册工作区。',
       'project.worktrees': '{n} 个工作树',
       'project.worktreesTitle': '工作树：{list}',
       'project.worktreesSection': '工作树',
@@ -1127,7 +1131,7 @@ window.__ModuleLoader__.load({
         groups,
         ungroupedProjects,
         pinned: pinnedSessions,
-        tree: buildTree(projects),
+        tree: buildTree(projects.filter((project) => !project.isUngrouped)),
         flat,
         searchResults: trimmed ? searchSessions(trimmed, projects, pinned) : [],
         projectBySession,
@@ -1284,7 +1288,9 @@ window.__ModuleLoader__.load({
       const meta = showMeta
         ? project
           ? project.isUngrouped
-            ? t('project.ungrouped')
+            ? session.cwd
+              ? baseName(session.cwd)
+              : t('project.ungrouped')
             : project.title
           : session.cwd
             ? baseName(session.cwd)
@@ -1610,6 +1616,59 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function LooseSessions(props) {
+      const { project, t, actions, collapsed, onToggle, currentId, pinnedSet, archivedSet } = props
+      if (!project || project.sessions.length === 0) return null
+      return h(
+        'section',
+        { className: 'orca-group orca-group--loose' },
+        h(
+          'div',
+          { className: 'orca-group-row' },
+          h(
+            'div',
+            {
+              className: 'orca-group-head',
+              role: 'button',
+              tabIndex: 0,
+              title: t('loose.hint'),
+              onClick: onToggle,
+              onKeyDown: (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  stopEvent(event)
+                  onToggle()
+                }
+              },
+            },
+            h(Chevron, { open: !collapsed }),
+            h(Icon, { name: 'chat', size: 12, className: 'orca-group-icon' }),
+            h('span', { className: 'orca-group-title' }, t('loose.title')),
+            h(CountBadge, null, String(project.sessions.length)),
+          ),
+        ),
+        collapsed
+          ? null
+          : h(
+              'div',
+              { className: 'orca-group-body' },
+              project.sessions.map((session) =>
+                h(SessionRow, {
+                  key: session.id,
+                  session,
+                  project,
+                  t,
+                  actions,
+                  variant: 'flat',
+                  pinned: pinnedSet.has(session.id),
+                  archived: archivedSet.has(session.id),
+                  current: currentId === session.id,
+                  currentId,
+                }),
+              ),
+            ),
+      )
+    }
+
     function GroupSection(props) {
       const {
         group,
@@ -1891,18 +1950,16 @@ window.__ModuleLoader__.load({
         view.projects
           .filter((project) => project.isUngrouped)
           .map((project) =>
-            h(ProjectRow, {
+            h(LooseSessions, {
               key: project.key,
               project,
               t,
               actions,
-              variant: 'orca',
-              collapsed: isCollapsed(state, `p:${project.key}`, project.key === currentProjectKey),
-              onToggle: () => actions.toggleProject(project.key, project.key === currentProjectKey),
+              collapsed: isCollapsed(state, 'loose', false),
+              onToggle: () => actions.toggleGroup('loose', false),
               currentId,
               pinnedSet,
               archivedSet,
-              drag,
             }),
           ),
         !view.hasProjects
@@ -1922,10 +1979,11 @@ window.__ModuleLoader__.load({
     function WorkspaceView(props) {
       const { view, state, t, actions, currentId, pinnedSet, archivedSet } = props
       const list = React.useMemo(() => {
-        const copy = view.projects.slice()
+        const copy = view.projects.filter((project) => !project.isUngrouped)
         sortProjects(copy, state, '__workspace__')
         return copy
       }, [view.projects, state.orderBy, state.projectOrder])
+      const loose = view.projects.find((project) => project.isUngrouped)
       return h(
         'div',
         { className: 'orca-view' },
@@ -1945,7 +2003,20 @@ window.__ModuleLoader__.load({
             archivedSet,
           }),
         ),
-        list.length === 0
+        loose
+          ? h(LooseSessions, {
+              key: loose.key,
+              project: loose,
+              t,
+              actions,
+              collapsed: isCollapsed(state, 'loose', false),
+              onToggle: () => actions.toggleGroup('loose', false),
+              currentId,
+              pinnedSet,
+              archivedSet,
+            })
+          : null,
+        list.length === 0 && !loose
           ? h(EmptyState, {
               icon: 'folder',
               title: t('empty.projects'),
@@ -1959,6 +2030,7 @@ window.__ModuleLoader__.load({
 
     function TreeView(props) {
       const { view, state, t, actions, currentId, pinnedSet, archivedSet } = props
+      const loose = view.projects.find((project) => project.isUngrouped)
       return h(
         'div',
         { className: 'orca-view' },
@@ -1975,7 +2047,20 @@ window.__ModuleLoader__.load({
             archivedSet,
           }),
         ),
-        view.tree.length === 0
+        loose
+          ? h(LooseSessions, {
+              key: loose.key,
+              project: loose,
+              t,
+              actions,
+              collapsed: isCollapsed(state, 'loose', false),
+              onToggle: () => actions.toggleGroup('loose', false),
+              currentId,
+              pinnedSet,
+              archivedSet,
+            })
+          : null,
+        view.tree.length === 0 && !loose
           ? h(EmptyState, {
               icon: 'folder',
               title: t('empty.projects'),
@@ -3453,6 +3538,9 @@ window.__ModuleLoader__.load({
       .orca-group + .orca-group {
         margin-top: 8px;
       }
+      .orca-group--loose {
+        margin-top: 8px;
+      }
       .orca-group-row {
         position: relative;
       }
@@ -4151,7 +4239,7 @@ window.__ModuleLoader__.load({
             .entries?.('sidebar.workspaces')
             .find(
               (candidate) =>
-                candidate.options.locale === 'workspace' && typeof candidate.inject === 'function',
+                candidate.locale === 'workspace' && typeof candidate.inject === 'function',
             )
           if (next === entry) return
           unsubscribe()

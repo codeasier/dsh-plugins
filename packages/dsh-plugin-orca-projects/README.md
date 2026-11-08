@@ -164,9 +164,11 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
 - Review-follow-up regressions cover simultaneous running/waiting status, loose
   sessions in grouped/tree views, sorting/dragging without groups, stable active
   project membership, resolved checkout labels in all modes, explicit negative
-  repository probes, subpath URLs, and the shipped search-command bridge.
-  These use server-rendered markup and fake service/shortcut sources; the review
-  fixes have not been reinstalled or rechecked in a real Web/Desktop page.
+  repository probes, subpath URLs, the shipped search-command bridge with the
+  real slot-entry shape, and stale worktree records with missing or foreign
+  checkout backlinks. These use server-rendered markup and fake service/shortcut
+  sources; the final build was also reinstalled in a scratch Web profile to
+  check the results in a real page.
 - Earlier manual checks in a scratch Web profile at DSH 0.2.2-rc.1: Orca-like mode in the
   view-options menu; project expansion; pin → shelf and gray project row; unpin
   → restored row; create/rename/delete group; move project by menu and by drag;
@@ -183,7 +185,9 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
   project had only its main workspace registered; the Host found its three
   additional `.git/worktrees` checkouts and the row showed a `4` badge with all
   four choices in the project menu, without creating workspaces just to list
-  them. The project menu listed
+  them. Sessions outside every registered workspace appeared in a separate,
+  collapsed **Unassigned sessions** section, not as an unassignable project;
+  expanding it showed their checkout and project chips. The project menu listed
   each worktree, renaming the project label persisted, and moving the project
   into a custom group kept it as one row. The two stale `.worktrees` entries
   whose directories no longer exist still grouped through the fallback.
@@ -203,7 +207,9 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
   does not scan parent directories. A workspace without its own `.git` entry
   stays a separate project, and a submodule is not merged into its enclosing
   repository. Discovery of unregistered checkouts reads `.git/worktrees`; a
-  checkout whose directory no longer exists is omitted from that list. If the
+  checkout is listed only while its directory exists and its `.git` file points
+  back to the same worktree record. Stale records are omitted even when their
+  old path has been reused by an ordinary directory or another repository. If the
   Host route is unavailable, only the path patterns `.worktrees/`,
   `.worktree/`, `worktrees/`, and Orca's `workspaces/<project>/<worktree>`
   consolidate.
