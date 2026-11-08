@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -936,5 +936,16 @@ describe('repository fetch route', () => {
     )
     expect(empty?.status).toBe(200)
     expect(await empty?.json()).toEqual({ repositories: [] })
+  })
+})
+
+describe('display metadata', () => {
+  it('ships the Chinese detail document named by the zh locale', () => {
+    const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+    const zh = JSON.parse(readFileSync(new URL('../locale/zh.json', import.meta.url), 'utf8'))
+    expect(zh.meta.description).toContain('worktree')
+    expect(zh.meta.detail).toBe('README.zh.md')
+    expect(manifest.files).toContain('README.zh.md')
+    expect(existsSync(new URL('../README.zh.md', import.meta.url))).toBe(true)
   })
 })
