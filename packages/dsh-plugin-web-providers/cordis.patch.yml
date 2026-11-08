@@ -1,0 +1,8 @@
+# Bundle layer for @codeasier/dsh-plugin-web-providers.
+#
+# A bundle patch inserts rows. `config` is replaced wholesale by a profile
+# override, so leave defaults to the Config schema and document the keys in
+# README.md.
+- insert:
+    - id: web-providers
+      name: "@codeasier/dsh-plugin-web-providers"
