@@ -46,8 +46,9 @@
   is not mistaken for a project that can be moved into a group.
 - Group sessions in the **Unassigned sessions** section by workspace/directory
   with collapsible headers instead of rendering one flat list, and omit the
-  redundant project chip on those rows. Pinning a loose session moves it to the
-  pinned shelf, where the project chip remains; unpinning restores its group.
+  redundant project chip on those rows. Pinned rows stay in the group, grayed
+  with an **已置顶** badge and their project chip, and also appear in the pinned
+  shelf, matching pinned sessions under registered projects.
 - Add an external `sessionId → projectId` overlay and a **Migrate unassigned
   sessions…** tool. It matches sessions outside every workspace to projects by
   `cwd`, previews matched/unmatched counts, persists the mapping in

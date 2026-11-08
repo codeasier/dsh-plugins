@@ -65,9 +65,10 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   registered workspaces remain accessible in grouped and workspace-tree views.
   In the **Unassigned sessions** section they are grouped by workspace (or by
   `cwd` when no workspace matches). Rows inside a group show only their checkout
-  label because the group already names the workspace. In Orca-like mode,
-  pinning one moves it to the **Pinned** shelf, where the project chip stays
-  visible; unpinning returns it to its workspace group.
+  label because the group already names the workspace. A pinned row stays in
+  its group, grayed with an **已置顶** badge and its project chip, and also
+  appears in the pinned shelf — the same treatment as pinned sessions under a
+  registered project.
 - **External session migration.** In Orca-like mode, **Migrate unassigned
   sessions…** matches those sessions to projects by `cwd` (longest project or
   worktree path) and previews the matched and unmatched counts. It writes only a
@@ -207,8 +208,8 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
   expanding it showed 18 collapsible workspace groups (for example
   `cc-workspace` with 58 sessions) rather than one flat list, and expanding a
   group showed its checkout label with the project chip omitted; pinning one
-  moved it to **Pinned** with its project chip, and unpinning returned it to the
-  group. The migration dialog
+  kept it in the group, grayed with an **已置顶** badge and its project chip, and
+  added it to the pinned shelf. The migration dialog
   detected 183 of those 193 sessions across 10 projects, applied the external
   mapping (leaving 10 unmatched), and the Undo action restored all 193. The
   project menu listed
