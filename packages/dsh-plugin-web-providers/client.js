@@ -1190,6 +1190,11 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
     }
 
     const same = (left, right) => JSON.stringify(stable(left)) === JSON.stringify(stable(right))
+    const sameProviderIds = (left, right) =>
+      same(
+        left.providers.map((provider) => provider.id),
+        right.providers.map((provider) => provider.id),
+      )
     const invalidJson = (entry) => Object.values(entry.json).some((edit) => edit.error !== '')
     const isDirty = (entry) => !same(entry.value, entry.base) || invalidJson(entry)
     const draftOf = (value, revision) => {
@@ -1225,8 +1230,13 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
           let next = current
           for (const { key } of KINDS) {
             const entry = current?.[key]
-            if (entry && (isDirty(entry) || entry.revision === snapshot.revision)) continue
-            next = { ...next, [key]: draftOf(saved[key], snapshot.revision) }
+            if (entry?.revision === snapshot.revision) continue
+            if (entry && same(entry.base, normalize(saved[key]))) {
+              // Preserve all editor state when only the namespace revision changes.
+              next = { ...next, [key]: { ...entry, revision: snapshot.revision } }
+            } else if (!entry || !isDirty(entry)) {
+              next = { ...next, [key]: draftOf(saved[key], snapshot.revision) }
+            }
           }
           return next
         })
@@ -1294,7 +1304,11 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
 
       const applyActive = async (kindKey, id) => {
         const base = normalize(saved[kindKey])
-        if (busy === kindKey || (id !== '' && !base.providers.some((entry) => entry.id === id)))
+        if (
+          busy === kindKey ||
+          !sameProviderIds(draft[kindKey].value, base) ||
+          (id !== '' && !base.providers.some((entry) => entry.id === id))
+        )
           return
         setBusy(kindKey)
         try {
@@ -1320,7 +1334,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
               return {
                 ...entry,
                 value: { ...entry.value, active },
-                // Only our own active write may advance an otherwise dirty draft's fence.
+                // Adopt the active write only if no same-section conflict appeared.
                 ...(entry.revision === snapshot.revision &&
                 same(normalize(latest.value?.[kindKey]), { ...base, active: id })
                   ? { base: normalize(latest.value?.[kindKey]), revision: latest.revision }
@@ -1428,7 +1442,8 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                 value: effectiveActive(persisted),
                 width: 190,
                 ariaLabel: t('a11y.activeFor', { kind: t(kind.titleKey) }),
-                disabled: busy === kind.key || named.length === 0,
+                disabled:
+                  busy === kind.key || named.length === 0 || !sameProviderIds(value, persisted),
                 options: [
                   {
                     value: '',

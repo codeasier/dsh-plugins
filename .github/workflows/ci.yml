@@ -122,3 +122,13 @@ jobs:
           for field in $SCHEMA_FIELDS; do
             grep -q "\"$field\"" "$RUNNER_TEMP/schema.json"
           done
+
+  integration-status:
+    name: Install into a clean DSH profile
+    needs: integration
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Require every integration matrix entry to pass
+        run: test "${{ needs.integration.result }}" = success

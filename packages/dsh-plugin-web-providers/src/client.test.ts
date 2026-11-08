@@ -280,6 +280,126 @@ describe('client draft revisions (4494843646)', () => {
   })
 })
 
+describe('independent section revisions (4495421117)', () => {
+  it.each([
+    ['search', 'fetch'],
+    ['fetch', 'search'],
+  ])(
+    'saves dirty %s and %s sections sequentially without losing either edit',
+    async (first, second) => {
+      const ui = mount()
+      await ui.click('Edit', first)
+      await ui.change(ui.field('Display namelabel', first), `${first} edit`)
+      await ui.click('Edit', second)
+      await ui.change(ui.field('Display namelabel', second), `${second} edit`)
+      await ui.click('Save', first)
+      await ui.click('Save', second)
+      expect(ui.writes.map((write) => write.revision)).toEqual([1, 2])
+      expect(ui.snapshot().value[first as keyof Config].providers[0]).toMatchObject({
+        label: `${first} edit`,
+      })
+      expect(ui.snapshot().value[second as keyof Config].providers[0]).toMatchObject({
+        label: `${second} edit`,
+      })
+    },
+  )
+
+  it('preserves invalid JSON and credential mode when only the other section changes', async () => {
+    const ui = mount()
+    await ui.click('Edit')
+    await ui.change(ui.select('Credential type'), 'apiKeyEnv')
+    await ui.change(ui.json(), '{broken')
+    const remote = initial()
+    remote.fetch.providers[0] = { id: 'new-fetch', vendor: 'http' }
+    ui.refresh(remote)
+    expect(ui.select('Credential type').props.value).toBe('apiKeyEnv')
+    expect(ui.json().props.value).toBe('{broken')
+    expect(ui.button('Save').props.disabled).toBe(true)
+    await ui.change(ui.json(), '{}')
+    await ui.change(ui.field('Key'), 'SEARCH_KEY')
+    await ui.click('Save')
+    expect(ui.writes[0]).toMatchObject({ revision: 2 })
+    expect(ui.snapshot().value.search.providers[0]).toMatchObject({ apiKeyEnv: 'SEARCH_KEY' })
+    expect(ui.snapshot().value.fetch).toEqual(remote.fetch)
+  })
+
+  it('keeps editor-only credential mode and valid JSON text when only the other section changes', async () => {
+    const ui = mount()
+    await ui.click('Edit')
+    await ui.change(ui.select('Credential type'), 'apiKeyEnv')
+    await ui.change(ui.json(), '{ }')
+    const remote = initial()
+    remote.fetch.providers[0] = { id: 'new-fetch', vendor: 'http' }
+    ui.refresh(remote)
+    expect(ui.select('Credential type').props.value).toBe('apiKeyEnv')
+    expect(ui.json().props.value).toBe('{ }')
+    await ui.change(ui.field('Key'), 'SEARCH_KEY')
+    await ui.click('Save')
+    expect(ui.writes[0]).toMatchObject({ revision: 2 })
+    expect(ui.snapshot().value.search.providers[0]).toMatchObject({ apiKeyEnv: 'SEARCH_KEY' })
+  })
+
+  it('keeps a conflicting draft fenced when the other section is saved', async () => {
+    const ui = mount()
+    await ui.click('Edit')
+    await ui.change(ui.field('Display namelabel'), 'Local')
+    await ui.click('Edit', 'fetch')
+    await ui.change(ui.field('Display namelabel', 'fetch'), 'Fetch edit')
+    ui.afterAccept(() => {
+      const remote = structuredClone(ui.snapshot().value)
+      remote.search.providers[0] = { ...remote.search.providers[0], apiKey: 'rotated-key' }
+      ui.refresh(remote)
+    })
+    await ui.click('Save', 'fetch')
+    await ui.click('Save')
+    expect(ui.writes.map((write) => write.revision)).toEqual([1, 1])
+    expect(ui.snapshot().value.search.providers[0]).toMatchObject({
+      label: 'Original',
+      apiKey: 'rotated-key',
+    })
+    await ui.click('Edit')
+    expect(ui.field('Display namelabel').props.value).toBe('Local')
+  })
+})
+
+describe('provider identity edits (4495421130)', () => {
+  it('blocks switching to a renamed non-active provider until its draft is saved', async () => {
+    const config = initial()
+    config.search.providers.push({ id: 'b', vendor: 'tavily' })
+    config.search.active = 'b'
+    const ui = mount(config)
+    await ui.click('Edit')
+    await ui.change(ui.field('Nameid'), 'c')
+    const active = ui.select('Provider in use for Search')
+    expect(active.props.disabled).toBe(true)
+    await ui.change(active, 'a')
+    expect(ui.writes).toHaveLength(0)
+    expect(ui.snapshot().value.search.active).toBe('b')
+    await ui.click('Save')
+    expect(ui.snapshot().value.search).toMatchObject({
+      active: 'b',
+      providers: [{ id: 'c' }, { id: 'b' }],
+    })
+    expect(ui.select('Provider in use for Search').props.disabled).toBe(false)
+    await ui.change(ui.select('Provider in use for Search'), 'c')
+    expect(ui.snapshot().value.search.active).toBe('c')
+  })
+
+  it.each(['Add provider', 'Delete'])(
+    'blocks immediate switching after %s changes membership',
+    async (action) => {
+      const config = initial()
+      config.search.providers.push({ id: 'b', vendor: 'tavily' })
+      const ui = mount(config)
+      await ui.click(action)
+      expect(ui.select('Provider in use for Search').props.disabled).toBe(true)
+      await ui.change(ui.select('Provider in use for Search'), 'b')
+      expect(ui.writes).toHaveLength(0)
+      expect(ui.snapshot().value.search.active).toBe('a')
+    },
+  )
+})
+
 describe('persisted active switching (4494843659)', () => {
   it('never offers or writes a draft-only provider id', async () => {
     const ui = mount()
