@@ -1785,6 +1785,7 @@ window.__ModuleLoader__.load({
         onToggle,
         currentId,
         pinnedSet,
+        pinnedInShelf = false,
         archivedSet,
         state,
         migration,
@@ -1795,6 +1796,16 @@ window.__ModuleLoader__.load({
         Array.isArray(project.looseGroups) && project.looseGroups.length > 0
           ? project.looseGroups
           : [{ key: UNGROUPED, title: t('loose.title'), path: null, sessions: project.sessions }]
+      const visibleGroups = groups
+        .map((group) => ({
+          ...group,
+          sessions: pinnedInShelf
+            ? group.sessions.filter((session) => !pinnedSet.has(session.id))
+            : group.sessions,
+        }))
+        .filter((group) => group.sessions.length > 0)
+      const looseCount = visibleGroups.reduce((total, group) => total + group.sessions.length, 0)
+      if (looseCount === 0) return null
       const hover =
         migration && migration.candidates.length > 0
           ? h(
@@ -1831,7 +1842,7 @@ window.__ModuleLoader__.load({
             h(Chevron, { open: !collapsed }),
             h(Icon, { name: 'chat', size: 12, className: 'orca-group-icon' }),
             h('span', { className: 'orca-group-title' }, t('loose.title')),
-            h(CountBadge, null, String(project.sessions.length)),
+            h(CountBadge, null, String(looseCount)),
           ),
           hover,
         ),
@@ -1840,7 +1851,7 @@ window.__ModuleLoader__.load({
           : h(
               'div',
               { className: 'orca-group-body' },
-              groups.map((group) => {
+              visibleGroups.map((group) => {
                 const groupCollapsed = isCollapsed(state, `lg:${group.key}`, false)
                 return h(
                   'div',
@@ -1870,22 +1881,21 @@ window.__ModuleLoader__.load({
                     : h(
                         'div',
                         { className: 'orca-loose-workspace-body' },
-                        group.sessions.map((session) => {
-                          const isPinned = pinnedSet.has(session.id)
-                          return h(SessionRow, {
+                        group.sessions.map((session) =>
+                          h(SessionRow, {
                             key: session.id,
                             session,
                             project,
                             t,
                             actions,
                             variant: 'flat',
-                            hideProject: !isPinned,
-                            pinned: isPinned,
+                            hideProject: true,
+                            pinned: pinnedSet.has(session.id),
                             archived: archivedSet.has(session.id),
                             current: currentId === session.id,
                             currentId,
-                          })
-                        }),
+                          }),
+                        ),
                       ),
                 )
               }),
@@ -2183,6 +2193,7 @@ window.__ModuleLoader__.load({
               onToggle: () => actions.toggleGroup('loose', false),
               currentId,
               pinnedSet,
+              pinnedInShelf: true,
               archivedSet,
               state,
               migration: view.migration,
