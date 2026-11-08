@@ -7,6 +7,7 @@ has its own version, changelog, compatibility range, and release.
 | Plugin | What it adds | Version |
 |---|---|---|
 | [`@codeasier/dsh-plugin-hello`](../packages/dsh-plugin-hello) | A minimal, production-shaped DeepSeek Harness plugin: one configurable tool, display metadata, and independent release wiring. | `0.1.0` |
+| [`@codeasier/dsh-plugin-orca-projects`](../packages/dsh-plugin-orca-projects) | Orca-like project sidebar for the DSH Web and Desktop client: repository-aware worktree grouping, custom project groups, and a pinned session shelf. | `0.1.0` |
 <!-- plugins:end -->
 
 ## Install
