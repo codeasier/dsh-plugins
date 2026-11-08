@@ -579,6 +579,41 @@ window.__ModuleLoader__.load({
       return best
     }
 
+    function groupLooseSessions(sessions, workspaces) {
+      const groups = new Map()
+      for (const session of sessions) {
+        const cwd = session.cwd ? normalizePath(session.cwd) : null
+        let workspace = null
+        let bestLength = -1
+        for (const candidate of workspaces) {
+          const path = normalizePath(candidate.path)
+          if (!path) continue
+          if (cwd !== path && !isAncestor(path, cwd)) continue
+          if (path.length <= bestLength) continue
+          workspace = candidate
+          bestLength = path.length
+        }
+        const key = workspace ? normalizePath(workspace.path) : cwd || UNGROUPED
+        let group = groups.get(key)
+        if (!group) {
+          group = {
+            key,
+            title: workspace?.title || (cwd ? baseName(cwd) : UNGROUPED),
+            path: workspace?.path || cwd,
+            workspaceId: workspace?.workspaceId || null,
+            sessions: [],
+          }
+          groups.set(key, group)
+        }
+        group.sessions.push(session)
+      }
+      return [...groups.values()].sort((left, right) => {
+        const delta = right.sessions.length - left.sessions.length
+        if (delta !== 0) return delta
+        return String(left.title || '').localeCompare(String(right.title || ''))
+      })
+    }
+
     function worktreeForSession(session, project, workspaceBySession) {
       const workspacePath =
         workspaceBySession && typeof workspaceBySession.get === 'function'
@@ -1177,6 +1212,7 @@ window.__ModuleLoader__.load({
           workspaceIds: [],
           memberPaths: [],
           worktrees: [],
+          looseGroups: groupLooseSessions(ordered, items),
           groupId: null,
           title: null,
           path: null,
@@ -1749,10 +1785,15 @@ window.__ModuleLoader__.load({
         currentId,
         pinnedSet,
         archivedSet,
+        state,
         migration,
         onMigrate,
       } = props
       if (!project || project.sessions.length === 0) return null
+      const groups =
+        Array.isArray(project.looseGroups) && project.looseGroups.length > 0
+          ? project.looseGroups
+          : [{ key: UNGROUPED, title: t('loose.title'), path: null, sessions: project.sessions }]
       const hover =
         migration && migration.candidates.length > 0
           ? h(
@@ -1798,20 +1839,53 @@ window.__ModuleLoader__.load({
           : h(
               'div',
               { className: 'orca-group-body' },
-              project.sessions.map((session) =>
-                h(SessionRow, {
-                  key: session.id,
-                  session,
-                  project,
-                  t,
-                  actions,
-                  variant: 'flat',
-                  pinned: pinnedSet.has(session.id),
-                  archived: archivedSet.has(session.id),
-                  current: currentId === session.id,
-                  currentId,
-                }),
-              ),
+              groups.map((group) => {
+                const groupCollapsed = isCollapsed(state, `lg:${group.key}`, false)
+                return h(
+                  'div',
+                  { className: 'orca-loose-workspace', key: group.key },
+                  h(
+                    'div',
+                    {
+                      className: 'orca-loose-workspace-head',
+                      role: 'button',
+                      tabIndex: 0,
+                      title: group.path || group.title,
+                      onClick: () => actions.toggleGroup(`lg:${group.key}`, false),
+                      onKeyDown: (event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          stopEvent(event)
+                          actions.toggleGroup(`lg:${group.key}`, false)
+                        }
+                      },
+                    },
+                    h(Chevron, { open: !groupCollapsed }),
+                    h(Icon, { name: 'folder', size: 12, className: 'orca-loose-workspace-icon' }),
+                    h('span', { className: 'orca-loose-workspace-title' }, group.title),
+                    h(CountBadge, null, String(group.sessions.length)),
+                  ),
+                  groupCollapsed
+                    ? null
+                    : h(
+                        'div',
+                        { className: 'orca-loose-workspace-body' },
+                        group.sessions.map((session) =>
+                          h(SessionRow, {
+                            key: session.id,
+                            session,
+                            project,
+                            t,
+                            actions,
+                            variant: 'flat',
+                            pinned: pinnedSet.has(session.id),
+                            archived: archivedSet.has(session.id),
+                            current: currentId === session.id,
+                            currentId,
+                          }),
+                        ),
+                      ),
+                )
+              }),
             ),
       )
     }
@@ -2107,6 +2181,7 @@ window.__ModuleLoader__.load({
               currentId,
               pinnedSet,
               archivedSet,
+              state,
               migration: view.migration,
               onMigrate: actions.migrateLoose,
             }),
@@ -2163,6 +2238,7 @@ window.__ModuleLoader__.load({
               currentId,
               pinnedSet,
               archivedSet,
+              state,
               migration: view.migration,
               onMigrate: actions.migrateLoose,
             })
@@ -2209,6 +2285,7 @@ window.__ModuleLoader__.load({
               currentId,
               pinnedSet,
               archivedSet,
+              state,
               migration: view.migration,
               onMigrate: actions.migrateLoose,
             })
@@ -3747,6 +3824,48 @@ window.__ModuleLoader__.load({
       }
       .orca-group--loose {
         margin-top: 8px;
+      }
+      .orca-loose-workspace {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+      }
+      .orca-loose-workspace + .orca-loose-workspace {
+        margin-top: 2px;
+      }
+      .orca-loose-workspace-head {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        height: 28px;
+        padding: 0 8px 0 12px;
+        border-radius: 6px;
+        color: var(--dsw-alias-label-secondary);
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        user-select: none;
+      }
+      .orca-loose-workspace-head:hover {
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent);
+        color: var(--dsw-alias-label-primary);
+      }
+      .orca-loose-workspace-icon {
+        flex: none;
+        opacity: 0.85;
+      }
+      .orca-loose-workspace-title {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .orca-loose-workspace-body {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        margin-left: 8px;
       }
       .orca-group-row {
         position: relative;

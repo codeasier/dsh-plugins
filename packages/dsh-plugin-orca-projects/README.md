@@ -199,7 +199,9 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
   four choices in the project menu, without creating workspaces just to list
   them. Sessions outside every registered workspace appeared in a separate,
   collapsed **Unassigned sessions** section, not as an unassignable project;
-  expanding it showed their checkout and project chips. The migration dialog
+  expanding it showed 18 collapsible workspace groups (for example
+  `cc-workspace` with 58 sessions) rather than one flat list, and expanding a
+  group showed its checkout and project chips. The migration dialog
   detected 183 of those 193 sessions across 10 projects, applied the external
   mapping (leaving 10 unmatched), and the Undo action restored all 193. The
   project menu listed

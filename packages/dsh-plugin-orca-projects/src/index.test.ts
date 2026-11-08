@@ -89,6 +89,13 @@ interface ProjectView {
   workspaceId: string | null
   workspaceIds: string[]
   memberPaths: string[]
+  looseGroups?: Array<{
+    key: string
+    title: string
+    path: string | null
+    workspaceId: string | null
+    sessions: Summary[]
+  }>
   worktrees: Array<{
     workspaceId: string | null
     path: string
@@ -532,9 +539,10 @@ describe('sidebar review regressions', () => {
     const html = renderSidebar({
       mode,
       groups: [{ id: 'g-empty', name: 'Empty group' }],
-      collapsed: { loose: false },
+      collapsed: { loose: false, 'lg:/elsewhere': false },
     })
     expect(html).toContain('orca-group--loose')
+    expect(html).toContain('orca-loose-workspace')
     expect(html).not.toContain('data-project-key="__ungrouped__"')
     expect(html.match(/data-session-id="s-loose"/g)).toHaveLength(1)
   })
@@ -899,6 +907,34 @@ describe('orca view model', () => {
     )
     expect(project(view, '__ungrouped__').sessions.map((entry) => entry.id)).toContain('s-loose')
     expect(view.migration.candidates).toEqual([])
+  })
+
+  it('groups unassigned sessions by their workspace directory', () => {
+    const internals = loadClient().__internals
+    const base = snapshots()
+    const sessionSnapshot: SessionSnapshot = {
+      ids: [...base.sessionSnapshot.ids, 's-inside'],
+      byId: {
+        ...base.sessionSnapshot.byId,
+        's-inside': summary('s-inside', 'Inside', NOW - 100, '/projects/one/src'),
+      },
+    }
+    const view = internals.buildView({
+      workspaceSnapshot: base.workspaceSnapshot,
+      sessionSnapshot,
+      state: internals.defaultState(),
+    })
+    const loose = project(view, '__ungrouped__')
+    expect(
+      loose.looseGroups?.map((group) => ({
+        title: group.title,
+        path: group.path,
+        count: group.sessions.length,
+      })),
+    ).toEqual([
+      { title: 'elsewhere', path: '/elsewhere', count: 1 },
+      { title: 'one', path: '/projects/one', count: 1 },
+    ])
   })
 
   it('shows Host-discovered worktrees when only the main workspace is registered', () => {
