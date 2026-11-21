@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 type Props = Record<string, unknown>
 type Component = (props: Props) => React.ReactNode
+type Session = { id: string; cwd: string; displayTitle: string; updatedAt: number }
 // DSH 0.2.2-rc.1 StoredEntry keeps locale/inject outside its dispatch options.
 interface Entry {
   options: {
@@ -197,8 +198,13 @@ function setup(wide = true) {
   const slotListeners = new Set<() => void>()
   const disposers: Array<() => void> = []
   let sidebar: Entry | undefined
-  const list = source({ items: [], archivedSessionIds: [], pinnedSessionIds: [], phase: 'ready' })
-  const sessions = source({ ids: [], byId: {} })
+  const list = source({
+    items: [] as Props[],
+    archivedSessionIds: [] as string[],
+    pinnedSessionIds: [] as string[],
+    phase: 'ready',
+  })
+  const sessions = source({ ids: [] as string[], byId: {} as Record<string, Session> })
   const services: Props = {
     workspaces: { list },
     sessions: { list: sessions },
@@ -249,24 +255,31 @@ function setup(wide = true) {
     },
   })
   if (!sidebar?.component || !sidebar.inject) throw new Error('Missing Sidebar registration')
-  const props = { ...sidebar.inject(), wide, t: (key: string) => key, expandSidebar: vi.fn() }
+  const props: Props & { wide: boolean } = {
+    ...sidebar.inject(),
+    wide,
+    t: (key: string) => key,
+    expandSidebar: vi.fn(),
+  }
   const focus = vi.fn()
-  let header: Props = {}
+  let rendered: React.ReactNode
   let lastRef: { current: unknown } | undefined
   let inert = false
   const closest = () => (inert ? {} : null)
   const root = {
-    querySelector: () => (header.searchOpen ? { focus, closest } : null),
+    querySelector: () => (component('Header').searchOpen ? { focus, closest } : null),
+    querySelectorAll: vi.fn<(selector: string) => unknown[]>(() => []),
     closest,
   }
+  const component = (name: string) =>
+    findElement(
+      rendered,
+      (element) => typeof element.type === 'function' && element.type.name === name,
+    )?.props ?? {}
   const render = () =>
     renderer.render(sidebar?.component as Component, props, (tree) => {
       if (lastRef) lastRef.current = null
-      const headerElement = findElement(
-        tree,
-        (element) => typeof element.type === 'function' && element.type.name === 'Header',
-      )
-      header = headerElement?.props ?? {}
+      rendered = tree
       const rootElement = findElement(tree, (element) => element.props.className === 'orca-root')
       lastRef = (rootElement as (React.ReactElement & { ref?: { current: unknown } }) | undefined)
         ?.ref
@@ -281,7 +294,11 @@ function setup(wide = true) {
     props,
     focus,
     render,
-    header: () => header,
+    root,
+    list,
+    sessions,
+    component,
+    header: () => component('Header'),
     setInert(value: boolean) {
       inert = value
     },
@@ -325,6 +342,107 @@ describe('PR #10 feedback 4506130648: stored slot entry contract', () => {
     expect(test.controls.listeners.size).toBe(0)
     expect(test.slotListeners.size).toBe(0)
   })
+})
+
+describe('PR #10 Orca sidebar actions', () => {
+  it('reveals the original pinned loose row in its own collapsed group', () => {
+    vi.useFakeTimers()
+    const test = setup()
+    try {
+      const session = { id: 'loose-pin', cwd: '/standalone', displayTitle: 'Loose', updatedAt: 1 }
+      test.sessions.set({ ids: [session.id], byId: { [session.id]: session } })
+      test.list.set({ ...test.list.getSnapshot(), pinnedSessionIds: [session.id] })
+      test.render()
+
+      const scrollIntoView = vi.fn()
+      const otherScroll = vi.fn()
+      test.root.querySelectorAll.mockImplementation((selector) =>
+        selector === '.orca-group--loose .orca-session--flat[data-session-id]'
+          ? [
+              { dataset: { sessionId: 'another' }, scrollIntoView: otherScroll },
+              { dataset: { sessionId: session.id }, scrollIntoView },
+            ]
+          : [],
+      )
+      const actions = test.component('OrcaView').actions as {
+        menu(
+          event: unknown,
+          session: Session,
+          pinned: boolean,
+          archived: boolean,
+          variant: string,
+        ): void
+      }
+      actions.menu(
+        { currentTarget: { getBoundingClientRect: () => ({ top: 0, right: 20, bottom: 10 }) } },
+        session,
+        true,
+        false,
+        'pinned',
+      )
+      test.render()
+      const menu = test.component('MenuLayer').menu as {
+        items: Array<{ label?: string; onSelect?: () => void }>
+      }
+      const reveal = menu.items.find((item) => item.label === 'session.reveal')?.onSelect
+      expect(reveal).toBeDefined()
+      reveal?.()
+      test.render()
+      const state = test.component('OrcaView').state as { collapsed: Record<string, boolean> }
+      expect(state.collapsed).toEqual({ loose: false, 'lg:/standalone': false })
+      vi.advanceTimersByTime(50)
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
+      expect(otherScroll).not.toHaveBeenCalled()
+    } finally {
+      test.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  it.each(['same', 'added', 'retargeted'] as const)(
+    'only applies the previewed migration set if current matches are %s',
+    (change) => {
+      const test = setup()
+      try {
+        test.props.resolveRepositories = undefined
+        const initial = {
+          id: 'first',
+          cwd: '/repo/nested/src',
+          displayTitle: 'First',
+          updatedAt: 1,
+        }
+        const second = { id: 'second', cwd: '/repo/docs', displayTitle: 'Second', updatedAt: 2 }
+        const repo = { workspaceId: 'repo', path: '/repo', sessionIds: [] }
+        const nested = { workspaceId: 'nested', path: '/repo/nested', sessionIds: [] }
+        test.list.set({ ...test.list.getSnapshot(), items: [repo] })
+        test.sessions.set({ ids: [initial.id], byId: { [initial.id]: initial } })
+        test.render()
+        const actions = test.component('OrcaView').actions as { migrateLoose(): void }
+        actions.migrateLoose()
+        test.render()
+        const firstDialog = test.component('DialogLayer').dialog as { confirm: string }
+        expect(firstDialog.confirm).toBe('migration.confirm')
+
+        if (change === 'added') {
+          test.sessions.set({ ids: [initial.id, second.id], byId: { first: initial, second } })
+        } else if (change === 'retargeted') {
+          test.list.set({ ...test.list.getSnapshot(), items: [repo, nested] })
+        }
+        test.render()
+        const confirm = test.component('DialogLayer').onConfirm as (value: null) => void
+        confirm(null)
+        test.render()
+        const state = test.component('OrcaView').state as {
+          sessionProjects: Record<string, string>
+        }
+        const toast = test.component('ToastLayer').toast as { message: string }
+        expect(state.sessionProjects).toEqual(change === 'same' ? { first: '/repo' } : {})
+        expect(toast.message).toBe(change === 'same' ? 'migration.done' : 'migration.changed')
+      } finally {
+        test.dispose()
+      }
+    },
+  )
 })
 
 describe('PR #10 feedback 4506000337: shipped session.search bridge', () => {

@@ -82,6 +82,7 @@ window.__ModuleLoader__.load({
         'Detected {n} sessions for {projects} projects; {unmatched} could not be matched. This writes only an external project mapping; DSH workspaces and session ownership stay unchanged.',
       'migration.confirm': 'Migrate {n}',
       'migration.done': 'Migrated {n} sessions into projects',
+      'migration.changed': 'The session matches changed. Review a fresh migration preview.',
       'migration.reverted': 'Session migration cleared',
       'migration.none': 'No unassigned session could be matched to a project.',
       'project.worktrees': '{n} worktrees',
@@ -202,6 +203,7 @@ window.__ModuleLoader__.load({
         '识别到 {n} 个会话可归入 {projects} 个项目，另有 {unmatched} 个无法匹配。此操作只写入外挂 projectId 映射，不会修改 DSH workspace 或会话归属。',
       'migration.confirm': '迁移 {n} 条',
       'migration.done': '已将 {n} 个会话归入项目',
+      'migration.changed': '会话匹配已变化，请重新查看迁移预览。',
       'migration.reverted': '已清除会话迁移',
       'migration.none': '没有可匹配到项目的未归属会话。',
       'project.worktrees': '{n} 个工作树',
@@ -810,6 +812,31 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // Refill the visible slots without moving a filtered-out entry from its slot.
+    function mergeVisibleOrder(previous, next, aliases) {
+      const visible = new Set(next)
+      let index = 0
+      const prior = new Set(previous || [])
+      const aliasSlots = new Map()
+      // Like orderIndexForProject, prefer the exact key and then the first
+      // present member path in project membership order, not saved-slot order.
+      for (const [key, canonical] of aliases || []) {
+        if (!prior.has(canonical) && prior.has(key) && !aliasSlots.has(canonical)) {
+          aliasSlots.set(canonical, key)
+        }
+      }
+      const order = new Set()
+      for (const key of prior) {
+        const canonical = aliases?.get(key)
+        if (canonical === undefined) order.add(key)
+        else if (aliasSlots.get(canonical) === key) order.add(canonical)
+      }
+      return [
+        ...Array.from(order, (key) => (visible.has(key) ? next[index++] : key)),
+        ...next.slice(index),
+      ]
+    }
+
     function moveProjectInOrder(
       state,
       path,
@@ -818,6 +845,7 @@ window.__ModuleLoader__.load({
       anchorKey,
       position,
       memberPaths,
+      aliases,
     ) {
       const order = (Array.isArray(orderedKeys) ? orderedKeys : []).filter((key) => key !== path)
       let index = anchorKey ? order.indexOf(anchorKey) : -1
@@ -828,11 +856,22 @@ window.__ModuleLoader__.load({
       return {
         ...state,
         assignments: withAssignments(state, path, groupId, memberPaths),
-        projectOrder: { ...(state.projectOrder || {}), [orderKey]: order },
+        projectOrder: {
+          ...(state.projectOrder || {}),
+          [orderKey]: mergeVisibleOrder(state.projectOrder?.[orderKey], order, aliases),
+        },
       }
     }
 
-    function moveSessionInOrder(state, projectKey, sessionId, orderedIds, anchorId, position) {
+    function moveSessionInOrder(
+      state,
+      projectKey,
+      sessionId,
+      orderedIds,
+      anchorId,
+      position,
+      memberPaths,
+    ) {
       const order = (Array.isArray(orderedIds) ? orderedIds : []).filter((id) => id !== sessionId)
       let index = anchorId ? order.indexOf(anchorId) : -1
       if (index < 0) index = order.length
@@ -841,7 +880,13 @@ window.__ModuleLoader__.load({
       return {
         ...state,
         orderBy: 'manual',
-        sessionOrder: { ...(state.sessionOrder || {}), [projectKey]: order },
+        sessionOrder: {
+          ...(state.sessionOrder || {}),
+          [projectKey]: mergeVisibleOrder(
+            orderForProject(state.sessionOrder, projectKey, memberPaths),
+            order,
+          ),
+        },
       }
     }
 
@@ -1044,7 +1089,7 @@ window.__ModuleLoader__.load({
       const summaries = sessionSnapshot.byId || {}
       const sessionIds = Array.isArray(sessionSnapshot.ids) ? sessionSnapshot.ids : []
       const items = Array.isArray(snapshot.items) ? snapshot.items : []
-      const projects = []
+      let projects = []
       const accounted = new Set()
       const workspaceBySession = new Map()
       const consolidate = state.mode === 'orca'
@@ -1093,7 +1138,6 @@ window.__ModuleLoader__.load({
             all.push(session)
           }
         }
-        if (activeOnly && all.length === 0) continue
         const projectKey = normalizePath(group.key)
         const memberPaths = group.members.map((member) => member.path)
         const ordered = sortSessions(all, state, projectKey, memberPaths)
@@ -1203,6 +1247,9 @@ window.__ModuleLoader__.load({
           target.updatedAt,
         )
       }
+      // Adoption and migration matching must see registered projects even when
+      // their only active sessions are loose sessions with an external mapping.
+      if (activeOnly) projects = projects.filter((project) => project.sessions.length > 0)
       if (remainingLoose.length > 0) {
         const ordered = sortSessions(remainingLoose, state, UNGROUPED)
         projects.push({
@@ -2867,8 +2914,19 @@ window.__ModuleLoader__.load({
       const revealSession = (session) => {
         const project = view.projectBySession.get(session.id)
         if (!project) return
+        const looseGroup = project.isUngrouped
+          ? project.looseGroups?.find((group) =>
+              group.sessions.some((entry) => entry.id === session.id),
+            )
+          : undefined
+        if (project.isUngrouped && !looseGroup) return
         setState((prev) => {
           const collapsed = { ...(prev.collapsed || {}) }
+          if (looseGroup) {
+            collapsed.loose = false
+            collapsed[`lg:${looseGroup.key}`] = false
+            return { ...prev, collapsed }
+          }
           if (prev.mode === 'orca' && Array.isArray(prev.groups) && prev.groups.length > 0) {
             const assigned = assignmentForProject(prev, project)
             const valid = assigned && prev.groups.some((group) => group.id === assigned)
@@ -2877,10 +2935,16 @@ window.__ModuleLoader__.load({
           collapsed[`p:${project.key}`] = false
           return { ...prev, collapsed }
         })
-        const selector = `.orca-session--project[data-session-id="${session.id}"], .orca-session--tree[data-session-id="${session.id}"]`
+        const selector = looseGroup
+          ? '.orca-group--loose .orca-session--flat[data-session-id]'
+          : '.orca-session--project[data-session-id], .orca-session--tree[data-session-id]'
         let attempts = 0
         const scrollToRow = () => {
-          const row = document.querySelector(selector)
+          const root = searchRoot.current
+          if (!root) return
+          const row = Array.from(root.querySelectorAll(selector)).find(
+            (element) => element.dataset.sessionId === session.id,
+          )
           if (row) {
             row.scrollIntoView({ block: 'nearest' })
             return
@@ -3026,6 +3090,15 @@ window.__ModuleLoader__.load({
         const project = view.projects.find((entry) => entry.key === path)
         const previousGroup = project ? project.groupId : null
         const nextGroup = groupId || null
+        const visible = new Set([...(orderedKeys || []), path])
+        const aliases = new Map()
+        for (const sibling of view.projects) {
+          if (!visible.has(sibling.key)) continue
+          // Keep member order so a legacy alias uses the same slot as sorting.
+          for (const member of sibling.memberPaths) {
+            if (!visible.has(member)) aliases.set(member, sibling.key)
+          }
+        }
         setState((prev) =>
           moveProjectInOrder(
             prev,
@@ -3035,6 +3108,7 @@ window.__ModuleLoader__.load({
             anchorKey,
             position,
             project?.memberPaths,
+            aliases,
           ),
         )
         if (project && previousGroup !== nextGroup) {
@@ -3053,8 +3127,17 @@ window.__ModuleLoader__.load({
       }
       const moveSession = (projectKey, sessionId, orderedIds, anchorId, position) => {
         if (sessionId === anchorId) return
+        const project = view.projects.find((entry) => entry.key === projectKey)
         setState((prev) =>
-          moveSessionInOrder(prev, projectKey, sessionId, orderedIds, anchorId, position),
+          moveSessionInOrder(
+            prev,
+            projectKey,
+            sessionId,
+            orderedIds,
+            anchorId,
+            position,
+            project?.memberPaths,
+          ),
         )
       }
 
@@ -3378,9 +3461,15 @@ window.__ModuleLoader__.load({
           return
         }
         const projects = new Set(migration.candidates.map((candidate) => candidate.projectId)).size
+        const preview = migration.candidates.map(({ sessionId, projectId }) => ({
+          sessionId,
+          projectId,
+        }))
         setDialog({
           key: `d${Date.now()}`,
           kind: 'migration-confirm',
+          preview,
+          unmatched: migration.unmatched,
           title: t('migration.title'),
           description: t('migration.description', {
             n: migration.candidates.length,
@@ -3390,17 +3479,27 @@ window.__ModuleLoader__.load({
           confirm: t('migration.confirm', { n: migration.candidates.length }),
         })
       }
-      const applyMigration = () => {
-        const candidates = view.migration?.candidates || []
-        if (candidates.length === 0) return
+      const applyMigration = ({ preview, unmatched }) => {
+        const migration = view.migration
+        const current = new Map(
+          migration?.candidates.map(({ sessionId, projectId }) => [sessionId, projectId]),
+        )
+        if (
+          migration?.unmatched !== unmatched ||
+          current.size !== preview.length ||
+          !preview.every(({ sessionId, projectId }) => current.get(sessionId) === projectId)
+        ) {
+          showToast(t('migration.changed'))
+          return
+        }
         setState((prev) => {
           const sessionProjects = { ...(prev.sessionProjects || {}) }
-          for (const candidate of candidates) {
-            sessionProjects[candidate.sessionId] = candidate.projectId
+          for (const { sessionId, projectId } of preview) {
+            sessionProjects[sessionId] = projectId
           }
           return { ...prev, sessionProjects }
         })
-        showToast(t('migration.done', { n: candidates.length }))
+        showToast(t('migration.done', { n: preview.length }))
       }
       const revertMigration = () => {
         setState((prev) => ({ ...prev, sessionProjects: {} }))
@@ -3501,7 +3600,7 @@ window.__ModuleLoader__.load({
             (error) => fail(error, 'toast.projectFailed'),
           )
         } else if (current.kind === 'migration-confirm') {
-          applyMigration()
+          applyMigration(current)
         } else if (current.kind === 'archive-confirm') {
           archiveById(current.sessionId, current.sessionTitle, true)
         }

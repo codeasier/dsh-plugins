@@ -2,6 +2,10 @@
 
 ## 0.1.0
 
+- Keep migrated active sessions under their matched project; reveal pinned
+  unassigned sessions in their original workspace or directory group.
+- Recheck the previewed migration matches before applying them, and preserve
+  hidden manual-order positions when dragging filtered projects or sessions.
 - Read the shipped sidebar entry's top-level locale when bridging session search,
   with regression fixtures matching the DSH slot-entry contract.
 - Validate discovered worktrees' `.git` backlinks before listing them, excluding

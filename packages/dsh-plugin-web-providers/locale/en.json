@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Web Providers",
+    "description": "Point web_search and web_fetch at 9Router, Tavily, Brave, Exa, SearXNG, a custom URL, or another vendor — switchable from Settings."
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Web 搜索/抓取",
+    "description": "让 web_search 与 web_fetch 指向 9Router、Tavily、Brave、Exa、SearXNG 或任意自定义 URL，可在设置页切换。"
+  }
+}

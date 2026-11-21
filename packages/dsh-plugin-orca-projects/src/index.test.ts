@@ -163,6 +163,7 @@ interface Internals {
     anchorKey: string | null,
     position: 'before' | 'after',
     memberPaths?: string[],
+    aliases?: ReadonlyMap<string, string>,
   ): State
   moveSessionInOrder(
     state: State,
@@ -171,6 +172,7 @@ interface Internals {
     orderedIds: string[],
     anchorId: string | null,
     position: 'before' | 'after',
+    memberPaths?: string[],
   ): State
   isCollapsed(state: State, key: string, defaultExpanded: boolean): boolean
   normalizePath(value: string): string
@@ -707,6 +709,64 @@ describe('orca view model', () => {
     ])
   })
 
+  it('keeps hidden positions when reordering visible projects and sessions', () => {
+    const internals = loadClient().__internals
+    const state = {
+      ...internals.defaultState(),
+      orderBy: 'manual',
+      projectOrder: { __ungrouped__: ['/one/worktree', '/idle', '/two'] },
+      sessionOrder: { '/one/worktree': ['active-a', 'idle', 'active-b', 'archived'] },
+    }
+    const movedProjects = internals.moveProjectInOrder(
+      state,
+      '/two',
+      null,
+      ['/one', '/two'],
+      '/one',
+      'before',
+      undefined,
+      new Map([['/one/worktree', '/one']]),
+    )
+    expect(movedProjects.projectOrder.__ungrouped__).toEqual(['/two', '/idle', '/one'])
+
+    const movedSessions = internals.moveSessionInOrder(
+      state,
+      '/one',
+      'active-b',
+      ['active-a', 'active-b'],
+      'active-a',
+      'before',
+      ['/one/worktree'],
+    )
+    expect(movedSessions.sessionOrder['/one']).toEqual(['active-b', 'idle', 'active-a', 'archived'])
+  })
+
+  it.each([
+    ['the canonical order slot', ['/one/worktree-2', '/idle', '/two', '/one']],
+    ['the first present member slot', ['/one/worktree-2', '/idle', '/two', '/one/worktree-1']],
+  ])('uses %s instead of an earlier legacy alias', (_label, storedOrder) => {
+    const internals = loadClient().__internals
+    const state = {
+      ...internals.defaultState(),
+      orderBy: 'manual',
+      projectOrder: { __ungrouped__: storedOrder },
+    }
+    const moved = internals.moveProjectInOrder(
+      state,
+      '/two',
+      null,
+      ['/two', '/one'],
+      '/one',
+      'after',
+      undefined,
+      new Map([
+        ['/one/worktree-1', '/one'],
+        ['/one/worktree-2', '/one'],
+      ]),
+    )
+    expect(moved.projectOrder.__ungrouped__).toEqual(['/idle', '/one', '/two'])
+  })
+
   it('sanitizes persisted state and ignores unknown modes', () => {
     const client = loadClient()
     const internals = client.__internals
@@ -868,6 +928,37 @@ describe('orca view model', () => {
     )
     expect(migrated.migration.candidates).toEqual([])
     expect(migrated.projectBySession.get('s-inside')?.key).toBe('/projects/one')
+  })
+
+  it('matches and retains projects whose only active sessions are migrated', () => {
+    const internals = loadClient().__internals
+    const { workspaceSnapshot, sessionSnapshot: baseline } = snapshots()
+    const sessionSnapshot = {
+      ids: [...baseline.ids, 's-inside'],
+      byId: {
+        ...baseline.byId,
+        's-inside': summary('s-inside', 'Active', NOW - 1, '/projects/one/src'),
+      },
+    }
+    const input = {
+      workspaceSnapshot,
+      sessionSnapshot,
+      statusMap: new Map([['s-inside', { running: true }]]),
+    }
+    const state = { ...internals.defaultState(), activeOnly: true }
+    const unadopted = internals.buildView({ ...input, state })
+    expect(
+      unadopted.migration.candidates.map(({ sessionId, projectId }) => [sessionId, projectId]),
+    ).toEqual([['s-inside', '/projects/one']])
+    expect(unadopted.counts.projects).toBe(0)
+
+    const adopted = internals.buildView({
+      ...input,
+      state: { ...state, sessionProjects: { 's-inside': '/projects/one' } },
+    })
+    expect(adopted.projectBySession.get('s-inside')?.key).toBe('/projects/one')
+    expect(adopted.projects.map(({ key }) => key)).toEqual(['/projects/one'])
+    expect(adopted.migration.candidates).toEqual([])
   })
 
   it('allows an external project mapping even when cwd does not match', () => {
