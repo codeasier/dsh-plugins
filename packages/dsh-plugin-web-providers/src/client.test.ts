@@ -297,6 +297,7 @@ function mount(value = initial(), { queued = false } = {}) {
     select,
     json,
     text: () => text(tree),
+    sectionText: (kind: string) => text(section(kind)),
     click: (label: string, kind = 'search') => invoke(button(label, kind), 'onClick'),
     change: (node: Element, value: string) => invoke(node, 'onChange', value),
     options: (node: Element) =>
@@ -741,6 +742,53 @@ describe('shared namespace writes (4505996639)', () => {
 })
 
 describe('persisted active switching (4494843659)', () => {
+  it('shows a stale selection without marking the remaining provider active, then can repair it', async () => {
+    const config = initial()
+    config.search.active = 'missing'
+    const ui = mount(config)
+    const active = () => ui.select('Provider in use for Search')
+    expect(active().props.value).toBe('missing')
+    expect(active().props.disabled).toBe(false)
+    expect(ui.options(active())).toEqual(['missing', '', 'a'])
+    expect(ui.sectionText('search')).toContain('Unavailable selection')
+    expect(ui.sectionText('search')).toContain('The saved provider no longer exists.')
+    expect(ui.sectionText('search')).not.toContain('Active')
+    expect(ui.writes).toHaveLength(0)
+
+    await ui.change(active(), 'a')
+    expect(active().props.value).toBe('a')
+    expect(ui.snapshot().value.search.active).toBe('a')
+    expect(ui.sectionText('search')).not.toContain('Unavailable selection')
+    expect(ui.sectionText('search')).toContain('Active')
+  })
+
+  it('can clear a stale selection and keeps singleton automatic distinct from a named choice', async () => {
+    const config = initial()
+    config.search.active = 'missing'
+    const ui = mount(config)
+    const active = () => ui.select('Provider in use for Search')
+    await ui.change(active(), '')
+    expect(ui.snapshot().value.search.active).toBe('')
+    expect(active().props.value).toBe('')
+    expect(ui.sectionText('search')).toContain('Auto (only entry)')
+    expect(ui.sectionText('search')).toContain('Active')
+    expect(ui.sectionText('search')).not.toContain('Unavailable selection')
+  })
+
+  it('can clear an invalid selection after all providers have been removed', async () => {
+    const config = initial()
+    config.search = { active: 'missing', providers: [] }
+    const ui = mount(config)
+    const active = () => ui.select('Provider in use for Search')
+    expect(active().props.value).toBe('missing')
+    expect(active().props.disabled).toBe(false)
+    await ui.change(active(), '')
+    expect(ui.snapshot().value.search.active).toBe('')
+    expect(active().props.value).toBe('')
+    expect(active().props.disabled).toBe(true)
+    expect(ui.sectionText('search')).not.toContain('Unavailable selection')
+  })
+
   it('never offers or writes a draft-only provider id', async () => {
     const ui = mount()
     await ui.click('Add provider')

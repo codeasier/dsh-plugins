@@ -59,6 +59,7 @@ window.__ModuleLoader__.load({
         'label.unnamed': 'Unnamed',
         'label.unselected': 'Not selected',
         'label.unconfigured': 'Not configured',
+        'label.invalidActive': 'Unavailable selection',
         'label.autoUnspecified': 'Auto (unspecified)',
         'label.autoOnly': 'Auto (only entry)',
         'label.notConfiguredYet': 'No providers yet; add one to start using it.',
@@ -74,6 +75,8 @@ window.__ModuleLoader__.load({
         'status.auto': 'Switched to automatic selection.',
         'status.switched': 'Switched to {id}; applies on the next call.',
         'status.switchRejected': 'The switch was rejected; reload and retry.',
+        'status.invalidActive':
+          'The saved provider no longer exists. Choose a provider or clear the selection.',
         'status.failed': 'The write failed; your draft is kept. Please retry.',
         'status.jsonInvalid': 'Fix or discard invalid Other fields JSON before saving.',
         'error.jsonObject': 'must be a JSON object',
@@ -149,6 +152,7 @@ window.__ModuleLoader__.load({
         'label.unnamed': '未命名',
         'label.unselected': '未选择',
         'label.unconfigured': '未配置',
+        'label.invalidActive': '所选供应商不可用',
         'label.autoUnspecified': '自动（不指定）',
         'label.autoOnly': '自动（唯一一项）',
         'label.notConfiguredYet': '还没有供应商，添加一个后即可使用。',
@@ -163,6 +167,7 @@ window.__ModuleLoader__.load({
         'status.auto': '已改为自动选择。',
         'status.switched': '已切换到 {id}，下一次调用生效。',
         'status.switchRejected': '切换被拒绝，请刷新后重试。',
+        'status.invalidActive': '已选供应商不存在。请选择其他供应商，或清除当前选择。',
         'status.failed': '写入失败，草稿已保留，请重试。',
         'status.jsonInvalid': '请先修正或撤销其他字段中的无效 JSON，再保存。',
         'error.jsonObject': '必须是一个 JSON 对象',
@@ -729,7 +734,11 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
             onChange: (event) => onChange(event.target.value),
           },
           ...options.map((option) =>
-            h('option', { key: option.value, value: option.value }, option.label),
+            h(
+              'option',
+              { key: option.value, value: option.value, disabled: option.disabled === true },
+              option.label,
+            ),
           ),
         ),
         h('span', { style: S.chevron }, chevronIcon(12)),
@@ -1209,13 +1218,9 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
       return { value: base, base, revision, json: {}, keyTypes: {} }
     }
 
-    /** What the host will really use: the named entry, else the only entry. */
-    const effectiveActive = (value) => {
-      const providers = value.providers
-      if (value.active && providers.some((provider) => provider.id === value.active))
-        return value.active
-      return providers.length === 1 ? (providers[0].id ?? '') : ''
-    }
+    /** Only an unset id falls back to the sole entry; a stale id matches no card. */
+    const effectiveActive = (value) =>
+      value.active || (value.providers.length === 1 ? (value.providers[0].id ?? '') : '')
 
     /** The settings section: both provider lists, read from the plugin namespace. */
     function WebProvidersSection({ form }) {
@@ -1427,6 +1432,8 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
         const effective = effectiveActive(value)
         const status = notice && notice.kind === kind.key ? notice : null
         const named = persisted.providers.filter((provider) => provider.id)
+        const activeIsMissing =
+          persisted.active !== '' && !named.some((provider) => provider.id === persisted.active)
         const dirty = isDirty(entry)
         const editorOpen = openRow.startsWith(`${kind.key}:`)
         const inlineSave = dirty && !editorOpen
@@ -1452,11 +1459,17 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
               h('span', { style: S.activeLabel }, t('label.active')),
               h(Select, {
                 pill: true,
-                value: effectiveActive(persisted),
+                value: persisted.active,
                 width: 190,
                 ariaLabel: t('a11y.activeFor', { kind: t(kind.titleKey) }),
-                disabled: busy || named.length === 0 || !sameProviderIds(value, persisted),
+                disabled:
+                  busy ||
+                  (!activeIsMissing && named.length === 0) ||
+                  !sameProviderIds(value, persisted),
                 options: [
+                  ...(activeIsMissing
+                    ? [{ value: persisted.active, label: t('label.invalidActive'), disabled: true }]
+                    : []),
                   {
                     value: '',
                     label:
@@ -1472,6 +1485,9 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
               }),
             ),
           ),
+          activeIsMissing
+            ? h('p', { style: S.error, role: 'status' }, t('status.invalidActive'))
+            : null,
           providers.length === 0
             ? h('p', { style: S.empty }, t('label.notConfiguredYet'))
             : h(

@@ -79,8 +79,10 @@ design tokens (`--dsw-alias-*`, `--dsw-radius-*`), so it matches the neighbourin
 sections in light and dark themes, and its text comes from the client locale
 service.
 
-- **In use** commits immediately for saved provider IDs; leaving it on automatic
-  is valid. Save a new or renamed provider before switching to it.
+- **In use** commits immediately for saved provider IDs. Automatic selects the
+  only entry when there is one. A saved ID that no longer exists is shown as
+  unavailable; select another entry or clear the selection. Save a new or
+  renamed provider before switching to it.
 - Drafts retain their starting revision. Concurrent changes surface a conflict
   instead of overwriting another window's providers or credentials; Revert loads
   the latest saved section.
@@ -124,7 +126,7 @@ service.
 | `jina` | `GET https://r.jina.ai/{url}` → markdown |
 | `firecrawl` | `POST /v1/scrape` → markdown |
 | `tavily` | `POST /extract` → raw content |
-| `exa` | `POST /contents` → text |
+| `exa` | `POST /contents` → text; reports per-URL failures even if the API returns HTTP 200 |
 | `http-json` | your own endpoint, `contentField` picks the body |
 
 ## Custom URL

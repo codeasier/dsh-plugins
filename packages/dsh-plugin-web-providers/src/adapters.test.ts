@@ -426,6 +426,57 @@ describe('commercial fetch adapter contracts', () => {
   })
 })
 
+describe('Exa extraction status', () => {
+  function exa() {
+    return mount('fetch', { id: 'exa', vendor: 'exa', apiKeyEnv: 'ADAPTER_KEY' })
+  }
+
+  it('rejects a target-level failure in an HTTP-200 response', async () => {
+    mockHTTP({
+      results: [],
+      statuses: [
+        { id: TARGET, status: 'error', error: { tag: 'CRAWL_NOT_FOUND', httpStatusCode: 404 } },
+      ],
+    })
+    await expect(exa().fetch({ url: TARGET })).rejects.toMatchObject({
+      code: 'WEB_PROVIDER_ERROR',
+      message: 'exa extraction failed: CRAWL_NOT_FOUND',
+    })
+  })
+
+  it('allows an explicitly successful empty page', async () => {
+    mockHTTP({
+      results: [{ url: TARGET, text: '' }],
+      statuses: [{ id: TARGET, status: 'success' }],
+    })
+    await expect(exa().fetch({ url: TARGET })).resolves.toMatchObject({
+      statusCode: 200,
+      body: { kind: 'text', content: '' },
+    })
+  })
+
+  it('uses a sole normalized failure status without echoing the credential', async () => {
+    const key = 'SYNTHETIC_EXA_TOKEN'
+    mockHTTP({
+      results: [],
+      statuses: [{ id: 'https://target.example/article', status: 'error', error: { tag: key } }],
+    })
+    const provider = mount('fetch', { id: 'exa', vendor: 'exa', apiKey: key })
+    await expect(provider.fetch({ url: TARGET })).rejects.toMatchObject({
+      code: 'WEB_PROVIDER_ERROR',
+      message: 'exa extraction failed: [redacted]',
+    })
+  })
+
+  it('rejects an absent text result even without an explicit failure status', async () => {
+    mockHTTP({ results: [], statuses: [{ id: TARGET, status: 'success' }] })
+    await expect(exa().fetch({ url: TARGET })).rejects.toMatchObject({
+      code: 'WEB_PROVIDER_ERROR',
+      message: 'exa returned no text result for the requested URL',
+    })
+  })
+})
+
 describe('Tavily extraction result selection', () => {
   function tavily() {
     return mount('fetch', { id: 'tavily', vendor: 'tavily', apiKey: API_KEY })

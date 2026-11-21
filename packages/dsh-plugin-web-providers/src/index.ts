@@ -1456,25 +1456,38 @@ const fetchVendors: Record<string, FetchVendor> = {
         `exa entry "${spec.id}" needs apiKey or apiKeyEnv`,
         'WEB_PROVIDER_CREDENTIAL_MISSING',
       )
-    const payload = await requestJSON(
-      spec,
-      `${baseURL}/contents`,
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          accept: 'application/json',
-          'x-api-key': apiKey,
-        },
-        body: JSON.stringify({ urls: [request.url], text: true }),
+    const endpoint = `${baseURL}/contents`
+    const init = {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        accept: 'application/json',
+        'x-api-key': apiKey,
       },
-      signal,
-    )
-    const first = rowsAt(payload, 'results')[0]
+      body: JSON.stringify({ urls: [request.url], text: true }),
+    }
+    const payload = await requestJSON(spec, endpoint, init, signal)
+    const statuses = rowsAt(payload, 'statuses')
+    // We send one URL. Match its id when possible; its sole status can also
+    // identify the request when the provider normalizes the URL.
+    const status =
+      statuses.find((row) => row.id === request.url) ??
+      (statuses.length === 1 ? statuses[0] : undefined)
+    if (status?.status === 'error') {
+      const tag = at(status, 'error.tag')
+      const detail =
+        typeof tag === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/u.test(tag)
+          ? `: ${safeDetail(tag, spec, endpoint, init)}`
+          : ''
+      throw providerError(`exa extraction failed${detail}`, 'WEB_PROVIDER_ERROR')
+    }
+    const content = rowsAt(payload, 'results')[0]?.text
+    if (typeof content !== 'string')
+      throw providerError('exa returned no text result for the requested URL', 'WEB_PROVIDER_ERROR')
     return {
       url: request.url,
       statusCode: 200,
-      body: { kind: 'text' as const, content: String(at(first, 'text') ?? '') },
+      body: { kind: 'text' as const, content },
       truncated: false,
     }
   },
