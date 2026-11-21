@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Orca Projects plugin">
+  <rect width="64" height="64" rx="14" fill="#0f766e"/>
+  <path d="M24 18h10a8 8 0 0 1 8 8v2h3a5 5 0 0 1 0 10h-3v3a5 5 0 0 1-5 5H24a6 6 0 0 1-6-6V24a6 6 0 0 1 6-6Z" fill="#ffffff"/>
+  <circle cx="26" cy="28" r="2.4" fill="#0f766e"/>
+  <circle cx="34" cy="28" r="2.4" fill="#0f766e"/>
+  <path d="M25 38c2.2 2.4 4.8 3.6 7.8 3.6 2.6 0 4.8-.9 6.6-2.7" stroke="#0f766e" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+</svg>

@@ -71,6 +71,8 @@ jobs:
         include:
           - plugin: hello
             schema_fields: maxNameLength greeting
+          - plugin: orca-projects
+            schema_fields: ""
           - plugin: web-providers
             schema_fields: search fetch active providers apiKeyEnv method
     env:

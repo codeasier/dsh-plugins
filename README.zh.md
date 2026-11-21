@@ -30,6 +30,7 @@
 | 插件 | 功能 | 版本 |
 |---|---|---|
 | [`@codeasier/dsh-plugin-hello`](./packages/dsh-plugin-hello) | 注册一个可配置的 `hello` 工具，按名字打招呼。 | `0.1.0` |
+| [`@codeasier/dsh-plugin-orca-projects`](./packages/dsh-plugin-orca-projects) | 以项目为中心的侧栏，支持按仓库收拢 worktree、自定义分组与置顶会话架。 | `0.1.0` |
 | [`@codeasier/dsh-plugin-web-providers`](./packages/dsh-plugin-web-providers) | 让 web_search 与 web_fetch 指向 9Router、Tavily、Brave、Exa、SearXNG 或任意自定义 URL，可在设置页切换。 | `0.1.0` |
 <!-- plugins:end -->
 
