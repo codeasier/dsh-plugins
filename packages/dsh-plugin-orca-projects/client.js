@@ -680,8 +680,8 @@ window.__ModuleLoader__.load({
         orderBy: 'updated',
         archivedFilter: 'hide',
         activeOnly: false,
-        font: 'system',
-        fontSize: 'md',
+        font: 'mono',
+        fontSize: 'sm',
         groups: [],
         assignments: {},
         projectNames: {},
@@ -3829,8 +3829,12 @@ window.__ModuleLoader__.load({
         --orca-hover: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
         --orca-row: color-mix(in srgb, var(--dsw-alias-label-primary) 3%, transparent);
         --orca-row-border: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
-        --orca-title-size: 12px;
-        --orca-title-lh: 18px;
+        --orca-title-size: 10px;
+        --orca-title-lh: 15px;
+        --orca-chip-size: 9px;
+        --orca-chip-h: 14px;
+        --orca-row-min: 30px;
+        --orca-row-min-meta: 38px;
         display: flex;
         flex-direction: column;
         min-width: 0;
@@ -3858,16 +3862,28 @@ window.__ModuleLoader__.load({
         letter-spacing: -0.01em;
       }
       .orca-root[data-size='sm'] {
-        --orca-title-size: 11px;
-        --orca-title-lh: 16px;
+        --orca-title-size: 10px;
+        --orca-title-lh: 15px;
+        --orca-chip-size: 9px;
+        --orca-chip-h: 14px;
+        --orca-row-min: 30px;
+        --orca-row-min-meta: 38px;
       }
       .orca-root[data-size='md'] {
-        --orca-title-size: 12px;
-        --orca-title-lh: 18px;
+        --orca-title-size: 11px;
+        --orca-title-lh: 16px;
+        --orca-chip-size: 10px;
+        --orca-chip-h: 15px;
+        --orca-row-min: 31px;
+        --orca-row-min-meta: 40px;
       }
       .orca-root[data-size='lg'] {
-        --orca-title-size: 13px;
-        --orca-title-lh: 20px;
+        --orca-title-size: 12px;
+        --orca-title-lh: 18px;
+        --orca-chip-size: 10px;
+        --orca-chip-h: 16px;
+        --orca-row-min: 33px;
+        --orca-row-min-meta: 43px;
       }
       .orca-header {
         flex: none;
@@ -4001,13 +4017,13 @@ window.__ModuleLoader__.load({
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 18px;
-        height: 17px;
+        min-width: calc(var(--orca-chip-h) + 4px);
+        height: calc(var(--orca-chip-h) + 2px);
         padding: 0 5px;
         border-radius: 5px;
         background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
         color: var(--dsw-alias-label-secondary);
-        font-size: 10px;
+        font-size: var(--orca-chip-size);
         font-weight: 500;
         font-variant-numeric: tabular-nums;
         line-height: 1;
@@ -4096,7 +4112,7 @@ window.__ModuleLoader__.load({
         padding: 0 7px 0 9px;
         border-radius: 6px;
         color: var(--dsw-alias-label-secondary);
-        font-size: calc(var(--orca-title-size) - 1px);
+        font-size: calc(var(--orca-title-size) + 1px);
         font-weight: 500;
         cursor: pointer;
         user-select: none;
@@ -4142,7 +4158,7 @@ window.__ModuleLoader__.load({
         background: var(--dsw-alias-bg-layer-1);
         box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary) 2%, transparent);
         color: var(--dsw-alias-label-secondary);
-        font-size: calc(var(--orca-title-size) - 1px);
+        font-size: calc(var(--orca-title-size) + 1px);
         font-weight: 500;
         letter-spacing: 0.01em;
         cursor: pointer;
@@ -4283,7 +4299,7 @@ window.__ModuleLoader__.load({
         display: flex;
         align-items: stretch;
         min-width: 0;
-        min-height: 33px;
+        min-height: var(--orca-row-min);
         margin: 0;
         border: 0;
         border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
@@ -4292,7 +4308,7 @@ window.__ModuleLoader__.load({
         transition: background-color 120ms ease, box-shadow 120ms ease;
       }
       .orca-session.has-meta {
-        min-height: 43px;
+        min-height: var(--orca-row-min-meta);
         background: transparent;
       }
       .orca-pinned-body > .orca-session:last-child,
@@ -4361,15 +4377,15 @@ window.__ModuleLoader__.load({
         flex: 0 1 auto;
         min-width: 0;
         max-width: 52%;
-        height: 16px;
+        height: var(--orca-chip-h);
         padding: 0 5px;
         border: 0;
         border-radius: 4px;
         overflow: hidden;
         color: var(--dsw-alias-label-secondary);
         background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent);
-        font-size: 10.5px;
-        line-height: 16px;
+        font-size: var(--orca-chip-size);
+        line-height: var(--orca-chip-h);
       }
       .orca-session-project-icon {
         flex: none;
@@ -4380,7 +4396,7 @@ window.__ModuleLoader__.load({
         text-overflow: ellipsis;
         white-space: nowrap;
         color: inherit;
-        font-size: 10.5px;
+        font-size: var(--orca-chip-size);
       }
       .orca-worktree {
         display: inline-flex;
@@ -4388,7 +4404,7 @@ window.__ModuleLoader__.load({
         flex: 0 1 auto;
         min-width: 0;
         max-width: 108px;
-        height: 16px;
+        height: var(--orca-chip-h);
         padding: 0 5px;
         border: 0;
         border-radius: 4px;
@@ -4396,8 +4412,8 @@ window.__ModuleLoader__.load({
         white-space: nowrap;
         color: var(--dsw-alias-label-secondary);
         background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent);
-        font-size: 10.5px;
-        line-height: 16px;
+        font-size: var(--orca-chip-size);
+        line-height: var(--orca-chip-h);
       }
       .orca-worktree-label {
         min-width: 0;
@@ -4417,12 +4433,12 @@ window.__ModuleLoader__.load({
         align-items: center;
         gap: 2px;
         flex: none;
-        height: 16px;
+        height: var(--orca-chip-h);
         padding: 0 4px;
         border: 1px solid var(--dsw-alias-border-l1);
         border-radius: 999px;
         color: var(--dsw-alias-label-secondary);
-        font-size: 10px;
+        font-size: var(--orca-chip-size);
         line-height: 1;
       }
       .orca-session-hint.is-archived {

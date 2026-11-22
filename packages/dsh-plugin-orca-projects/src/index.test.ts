@@ -477,16 +477,18 @@ describe('client bundle', () => {
 
   it('exposes font and text-size preferences on the sidebar root', () => {
     const html = renderSidebar({ mode: 'orca' })
-    expect(html).toContain('data-font="system"')
-    expect(html).toContain('data-size="md"')
-    const mono = renderSidebar({ mode: 'orca', font: 'mono' })
-    expect(mono).toContain('data-font="mono"')
+    expect(html).toContain('data-font="mono"')
+    expect(html).toContain('data-size="sm"')
+    const system = renderSidebar({ mode: 'orca', font: 'system' })
+    expect(system).toContain('data-font="system"')
     const large = renderSidebar({ mode: 'orca', fontSize: 'lg' })
     expect(large).toContain('data-size="lg"')
     const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
     expect(source).toContain("[data-font='mono']")
     expect(source).toContain("[data-font='jetbrains']")
-    expect(source).toContain("[data-size='sm']")
+    expect(source).toMatch(
+      /\[data-size='sm'\]\s*\{[^}]*--orca-title-size: 10px[^}]*--orca-chip-size: 9px/,
+    )
     expect(source).toContain("[data-size='lg']")
   })
 
