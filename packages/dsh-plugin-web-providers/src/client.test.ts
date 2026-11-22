@@ -1133,6 +1133,33 @@ it('keeps newer local edits without adopting remote credential changes during sa
 })
 
 describe('profile web routing', () => {
+  it('renders nothing about routes while both already point here', () => {
+    const ui = mount(initial(), {
+      webForm: routeForm({ searchProvider: 'web-providers', fetchProvider: 'web-providers' }),
+    })
+    expect(ui.text()).not.toContain('Search route:')
+    expect(ui.text()).not.toContain('Fetch route:')
+    expect(ui.routeButton('Search')).toBeUndefined()
+    expect(ui.routeButton('Fetch')).toBeUndefined()
+  })
+
+  it('points the matching route here when a provider is chosen below', async () => {
+    const config = initial()
+    config.search.providers.push({ id: 'b', vendor: 'tavily' })
+    const webForm = routeForm({ searchProvider: 'custom', fetchProvider: 'http' })
+    const ui = mount(config, { webForm })
+    await ui.change(ui.select('Provider in use for Search'), 'b')
+    expect(ui.snapshot().value.search.active).toBe('b')
+    expect(webForm.writes).toEqual([
+      { ops: [{ op: 'set', path: ['searchProvider'], value: 'web-providers' }], revision: 10 },
+    ])
+    // The other capability's route is left alone.
+    expect(webForm.getSnapshot().value).toEqual({
+      searchProvider: 'web-providers',
+      fetchProvider: 'http',
+    })
+  })
+
   it.each([
     ['Search', 'searchProvider', { searchProvider: 'custom', fetchProvider: 'http' }],
     ['Fetch', 'fetchProvider', { searchProvider: 'deepseek-official', fetchProvider: 'custom' }],
