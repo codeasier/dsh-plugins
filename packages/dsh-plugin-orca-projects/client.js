@@ -9,6 +9,8 @@ window.__ModuleLoader__.load({
     const UNGROUPED = '__ungrouped__'
     const MODES = ['orca', 'workspace', 'workspace-tree', 'flat']
     const FILTERS = ['hide', 'all', 'only']
+    const FONTS = ['system', 'mono', 'jetbrains']
+    const SIZES = ['sm', 'md', 'lg']
     const EMPTY_STATUS = new Map()
     const SessionStatusContext = React.createContext(null)
     const WorkspacePathContext = React.createContext(null)
@@ -39,6 +41,14 @@ window.__ModuleLoader__.load({
       'filter.all': 'All conversations (show archived)',
       'filter.only': 'Archived only',
       'filter.activeOnly': 'Active sessions only',
+      'appearance.font': 'Font',
+      'font.system': 'System',
+      'font.mono': 'Monospace (SF Mono / Menlo)',
+      'font.jetbrains': 'JetBrains Mono',
+      'appearance.size': 'Text size',
+      'size.sm': 'Small',
+      'size.md': 'Medium',
+      'size.lg': 'Large',
       'active.empty': 'No active sessions',
       'active.hint': 'Turn off Active sessions only to see every session.',
       'active.showAll': 'Show all sessions',
@@ -166,6 +176,14 @@ window.__ModuleLoader__.load({
       'filter.all': '全部对话（显示已归档）',
       'filter.only': '仅显示已归档',
       'filter.activeOnly': '仅活跃会话',
+      'appearance.font': '字体',
+      'font.system': '系统默认',
+      'font.mono': '等宽（SF Mono / Menlo）',
+      'font.jetbrains': 'JetBrains Mono',
+      'appearance.size': '字号',
+      'size.sm': '小',
+      'size.md': '中',
+      'size.lg': '大',
       'active.empty': '暂无活跃会话',
       'active.hint': '关闭“仅活跃会话”可查看全部会话。',
       'active.showAll': '查看全部会话',
@@ -662,6 +680,8 @@ window.__ModuleLoader__.load({
         orderBy: 'updated',
         archivedFilter: 'hide',
         activeOnly: false,
+        font: 'system',
+        fontSize: 'md',
         groups: [],
         assignments: {},
         projectNames: {},
@@ -684,6 +704,8 @@ window.__ModuleLoader__.load({
       if (raw.orderBy === 'manual' || raw.orderBy === 'updated') next.orderBy = raw.orderBy
       if (FILTERS.includes(raw.archivedFilter)) next.archivedFilter = raw.archivedFilter
       if (typeof raw.activeOnly === 'boolean') next.activeOnly = raw.activeOnly
+      if (FONTS.includes(raw.font)) next.font = raw.font
+      if (SIZES.includes(raw.fontSize)) next.fontSize = raw.fontSize
 
       if (Array.isArray(raw.groups)) {
         const seen = new Set()
@@ -2902,6 +2924,14 @@ window.__ModuleLoader__.load({
       const setActiveOnly = (activeOnly) => {
         setState((prev) => ({ ...prev, activeOnly: Boolean(activeOnly) }))
       }
+      const setFont = (font) => {
+        if (!FONTS.includes(font)) return
+        setState((prev) => ({ ...prev, font }))
+      }
+      const setFontSize = (fontSize) => {
+        if (!SIZES.includes(fontSize)) return
+        setState((prev) => ({ ...prev, fontSize }))
+      }
 
       const toggleGroup = (key, defaultExpanded) => {
         setState((prev) => toggleCollapsed(prev, key, defaultExpanded))
@@ -3447,6 +3477,40 @@ window.__ModuleLoader__.load({
             checked: state.archivedFilter === 'only',
             onSelect: () => setFilter('only'),
           },
+          { divider: true },
+          { section: t('appearance.font') },
+          {
+            label: t('font.system'),
+            checked: state.font === 'system',
+            onSelect: () => setFont('system'),
+          },
+          {
+            label: t('font.mono'),
+            checked: state.font === 'mono',
+            onSelect: () => setFont('mono'),
+          },
+          {
+            label: t('font.jetbrains'),
+            checked: state.font === 'jetbrains',
+            onSelect: () => setFont('jetbrains'),
+          },
+          { divider: true },
+          { section: t('appearance.size') },
+          {
+            label: t('size.sm'),
+            checked: state.fontSize === 'sm',
+            onSelect: () => setFontSize('sm'),
+          },
+          {
+            label: t('size.md'),
+            checked: state.fontSize === 'md',
+            onSelect: () => setFontSize('md'),
+          },
+          {
+            label: t('size.lg'),
+            checked: state.fontSize === 'lg',
+            onSelect: () => setFontSize('lg'),
+          },
         ]
         if (state.mode === 'orca') {
           items.push({ divider: true })
@@ -3660,7 +3724,13 @@ window.__ModuleLoader__.load({
 
       const content = h(
         'div',
-        { ref: searchRoot, className: 'orca-root', 'data-mode': state.mode },
+        {
+          ref: searchRoot,
+          className: 'orca-root',
+          'data-mode': state.mode,
+          'data-font': state.font,
+          'data-size': state.fontSize,
+        },
         h(Header, {
           t,
           mode: state.mode,
@@ -3759,6 +3829,8 @@ window.__ModuleLoader__.load({
         --orca-hover: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
         --orca-row: color-mix(in srgb, var(--dsw-alias-label-primary) 3%, transparent);
         --orca-row-border: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+        --orca-title-size: 12px;
+        --orca-title-lh: 18px;
         display: flex;
         flex-direction: column;
         min-width: 0;
@@ -3768,6 +3840,34 @@ window.__ModuleLoader__.load({
         font-size: 14px;
         line-height: 1.4;
         -webkit-font-smoothing: antialiased;
+      }
+      .orca-root[data-font='mono'] {
+        font-family: 'SF Mono', Menlo, Monaco, Consolas, 'Courier New', monospace;
+      }
+      .orca-root[data-font='jetbrains'] {
+        font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+      }
+      .orca-root[data-font='mono'] .orca-session-title,
+      .orca-root[data-font='mono'] .orca-project-title,
+      .orca-root[data-font='mono'] .orca-group-title,
+      .orca-root[data-font='mono'] .orca-loose-workspace-title,
+      .orca-root[data-font='jetbrains'] .orca-session-title,
+      .orca-root[data-font='jetbrains'] .orca-project-title,
+      .orca-root[data-font='jetbrains'] .orca-group-title,
+      .orca-root[data-font='jetbrains'] .orca-loose-workspace-title {
+        letter-spacing: -0.01em;
+      }
+      .orca-root[data-size='sm'] {
+        --orca-title-size: 11px;
+        --orca-title-lh: 16px;
+      }
+      .orca-root[data-size='md'] {
+        --orca-title-size: 12px;
+        --orca-title-lh: 18px;
+      }
+      .orca-root[data-size='lg'] {
+        --orca-title-size: 13px;
+        --orca-title-lh: 20px;
       }
       .orca-header {
         flex: none;
@@ -3996,7 +4096,7 @@ window.__ModuleLoader__.load({
         padding: 0 7px 0 9px;
         border-radius: 6px;
         color: var(--dsw-alias-label-secondary);
-        font-size: 12px;
+        font-size: calc(var(--orca-title-size) - 1px);
         font-weight: 500;
         cursor: pointer;
         user-select: none;
@@ -4042,7 +4142,7 @@ window.__ModuleLoader__.load({
         background: var(--dsw-alias-bg-layer-1);
         box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary) 2%, transparent);
         color: var(--dsw-alias-label-secondary);
-        font-size: 12px;
+        font-size: calc(var(--orca-title-size) - 1px);
         font-weight: 500;
         letter-spacing: 0.01em;
         cursor: pointer;
@@ -4120,9 +4220,9 @@ window.__ModuleLoader__.load({
         padding: 0 7px 0 5px;
         border-radius: 7px 7px 0 0;
         color: var(--dsw-alias-label-primary);
-        font-size: 12px;
+        font-size: var(--orca-title-size);
         font-weight: 500;
-        line-height: 20px;
+        line-height: var(--orca-title-lh);
         cursor: pointer;
         user-select: none;
         transition: background-color 120ms ease, color 120ms ease;
@@ -4221,8 +4321,8 @@ window.__ModuleLoader__.load({
         padding: 3px 8px;
         border-radius: 5px;
         color: var(--dsw-alias-label-primary);
-        font-size: 12px;
-        line-height: 18px;
+        font-size: var(--orca-title-size);
+        line-height: var(--orca-title-lh);
         cursor: pointer;
         user-select: none;
       }

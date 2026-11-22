@@ -63,6 +63,10 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   localized labels and tooltips; disclosure controls expose `aria-expanded`, and
   the current session exposes `aria-current` for keyboard and assistive-technology
   navigation.
+- **Appearance.** View options → **字体** switches between the host system font,
+  monospace (`SF Mono` / `Menlo` / `Consolas`), and `JetBrains Mono`; **字号**
+  offers small, medium, and large text. Both choices persist in `localStorage`
+  beside the other view options, and only affect this sidebar.
 - **Custom groups.** Use a project's `...` menu → **移动到分组** to create a group
   or move the project into one. You can also drag a project onto a group. Group
   headers can be renamed, deleted, and used to add projects; deleting a group

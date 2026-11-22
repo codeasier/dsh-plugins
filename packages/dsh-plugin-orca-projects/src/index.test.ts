@@ -59,6 +59,8 @@ interface State {
   orderBy: string
   archivedFilter: string
   activeOnly: boolean
+  font: string
+  fontSize: string
   groups: Group[]
   assignments: Record<string, string>
   projectNames: Record<string, string>
@@ -469,8 +471,23 @@ describe('client bundle', () => {
     const pinnedBody = source.match(/\.orca-pinned-body\s*\{([^}]*)\}/)?.[1] ?? ''
     expect(pinnedBody).not.toContain('max-height')
     expect(pinnedBody).not.toContain('overflow-y')
-    expect(source).toMatch(/\.orca-session-main\s*\{[^}]*font-size: 12px/)
-    expect(source).toMatch(/\.orca-project-head\s*\{[^}]*font-size: 12px/)
+    expect(source).toMatch(/\.orca-session-main\s*\{[^}]*font-size: var\(--orca-title-size\)/)
+    expect(source).toMatch(/\.orca-project-head\s*\{[^}]*font-size: var\(--orca-title-size\)/)
+  })
+
+  it('exposes font and text-size preferences on the sidebar root', () => {
+    const html = renderSidebar({ mode: 'orca' })
+    expect(html).toContain('data-font="system"')
+    expect(html).toContain('data-size="md"')
+    const mono = renderSidebar({ mode: 'orca', font: 'mono' })
+    expect(mono).toContain('data-font="mono"')
+    const large = renderSidebar({ mode: 'orca', fontSize: 'lg' })
+    expect(large).toContain('data-size="lg"')
+    const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+    expect(source).toContain("[data-font='mono']")
+    expect(source).toContain("[data-font='jetbrains']")
+    expect(source).toContain("[data-size='sm']")
+    expect(source).toContain("[data-size='lg']")
   })
 
   it('registers the browser with a negative priority and the plugin locale namespace', () => {
