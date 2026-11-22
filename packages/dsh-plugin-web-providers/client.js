@@ -15,7 +15,7 @@ window.__ModuleLoader__.load({
       en: {
         'page.title': 'Web search / fetch',
         'page.lead':
-          'Configure providers for this plugin. Search and fetch routing is set separately.',
+          'Choose the vendor behind web_search and web_fetch. A save applies on the next call.',
         'page.loading': 'Loading…',
         'page.unavailable':
           'This host does not serve the web-providers settings; check that the plugin is mounted in this profile.',
@@ -75,6 +75,7 @@ window.__ModuleLoader__.load({
         'status.rejected': 'The host rejected the write; reload and retry.',
         'status.auto': 'Switched to automatic selection.',
         'status.switched': 'Switched to {id}; applies on the next call.',
+        'status.switchedRouted': 'Switched to {id} and pointed this tool at the plugin.',
         'status.switchRejected': 'The switch was rejected; reload and retry.',
         'status.invalidActive':
           'The saved provider no longer exists. Choose a provider or clear the selection.',
@@ -132,7 +133,7 @@ window.__ModuleLoader__.load({
       },
       zh: {
         'page.title': 'Web 搜索/抓取',
-        'page.lead': '在这里配置本插件的供应商。搜索和抓取路由另行设置。',
+        'page.lead': '在这里选择 web_search 与 web_fetch 使用的供应商，保存后下一次调用生效。',
         'page.loading': '读取配置中…',
         'page.unavailable': '宿主当前没有提供 web-providers 配置项，请确认插件已挂载到此 profile。',
         'page.footnote': '各供应商的字段含义与凭据解析顺序见插件的 README.md。',
@@ -188,6 +189,7 @@ window.__ModuleLoader__.load({
         'status.rejected': '写入被拒绝，请刷新后重试。',
         'status.auto': '已改为自动选择。',
         'status.switched': '已切换到 {id}，下一次调用生效。',
+        'status.switchedRouted': '已切换到 {id}，并把该工具指向本插件。',
         'status.switchRejected': '切换被拒绝，请刷新后重试。',
         'status.invalidActive': '已选供应商不存在。请选择其他供应商，或清除当前选择。',
         'status.failed': '写入失败，草稿已保留，请重试。',
@@ -1324,6 +1326,9 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
 
       if (snapshot.status === 'loading') return routingMessage('select.loading')
       if (snapshot.status !== 'ready') return routingMessage('select.unreadable')
+      // Both routes already point here: the selection below is in effect, and a
+      // panel repeating that is noise. Say nothing until it stops being true.
+      if (snapshot.value?.searchProvider === NS && snapshot.value?.fetchProvider === NS) return null
 
       const hasRevision = Number.isSafeInteger(snapshot.revision)
       const writable = snapshot.writable === true
@@ -1530,6 +1535,29 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
         }
       }
 
+      /**
+       * Point this capability's `web` route at the plugin. Choosing a provider
+       * below means "use it", so the route follows instead of asking the user to
+       * confirm the same intent twice. Skips silently when the host does not
+       * serve the row or the row is read-only; the notice above then explains it.
+       * @returns true when the route was actually written.
+       */
+      const pointRouteAtPlugin = async (kindKey) => {
+        if (webForm === undefined) return false
+        const current = webForm.getSnapshot()
+        if (current.status !== 'ready' || current.writable !== true) return false
+        const field = `${kindKey}Provider`
+        if (current.value?.[field] === NS) return false
+        pendingWrite.current = true
+        try {
+          return await webForm.mutate([{ op: 'set', path: [field], value: NS }], current.revision)
+        } catch {
+          return false
+        } finally {
+          pendingWrite.current = false
+        }
+      }
+
       const applyActive = async (kindKey, id) => {
         const base = normalize(saved[kindKey])
         if (
@@ -1545,12 +1573,16 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
             [{ op: 'set', path: [kindKey, 'active'], value: id }],
             snapshot.revision,
           )
+          const routed = ok && id !== '' ? await pointRouteAtPlugin(kindKey) : false
           setNotice(
             ok
               ? {
                   kind: kindKey,
                   tone: 'ok',
-                  text: id === '' ? t('status.auto') : t('status.switched', { id }),
+                  text:
+                    id === ''
+                      ? t('status.auto')
+                      : t(routed ? 'status.switchedRouted' : 'status.switched', { id }),
                 }
               : { kind: kindKey, tone: 'error', text: t('status.switchRejected') },
           )
