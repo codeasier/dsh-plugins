@@ -40,7 +40,7 @@
     "sync:registry": "node scripts/sync-registry.mjs",
     "install:local": "node scripts/install-local.mjs",
     "changeset": "changeset",
-    "version-packages": "changeset version && pnpm install --lockfile-only",
+    "version-packages": "changeset version && pnpm install --lockfile-only && pnpm sync:registry",
     "release": "pnpm build && changeset publish",
     "release:dry": "pnpm build && node scripts/release-status.mjs",
     "release:ci": "node scripts/release-ci.mjs",
