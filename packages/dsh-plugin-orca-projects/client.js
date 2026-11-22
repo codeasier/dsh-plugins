@@ -3889,6 +3889,14 @@ window.__ModuleLoader__.load({
         flex-direction: column;
         gap: 2px;
       }
+      .orca-view.orca-flat,
+      .orca-view.orca-search {
+        gap: 0;
+        padding: 4px 5px;
+        border: 1px solid var(--dsw-alias-border-l1);
+        border-radius: 10px;
+        background: var(--dsw-alias-bg-layer-1);
+      }
       .orca-count {
         display: inline-flex;
         align-items: center;
@@ -3935,31 +3943,32 @@ window.__ModuleLoader__.load({
         transform: rotate(90deg);
       }
       .orca-pinned-group {
-        margin: 0 0 12px;
-        padding: 3px;
-        border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 13%, var(--dsw-alias-border-l1));
-        border-radius: 10px;
-        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 3%, transparent);
+        margin: 0 0 11px;
+        overflow: hidden;
+        border: 1px solid var(--dsw-alias-border-l1);
+        border-radius: 11px;
+        background: var(--dsw-alias-bg-layer-1);
+        box-shadow: 0 2px 7px color-mix(in srgb, var(--dsw-alias-label-primary) 3%, transparent);
       }
-      .orca-pinned-head {
-        height: 29px;
-        padding: 0 6px;
+      .orca-pinned-group .orca-pinned-head {
+        height: 33px;
+        padding: 0 9px;
         border: 0;
-        border-radius: 7px;
-        background: transparent;
+        border-radius: 0;
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 2%, transparent);
       }
       .orca-pinned-group:not(.is-collapsed) .orca-pinned-head {
-        margin-bottom: 2px;
+        border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
       }
       .orca-pinned-icon {
-        color: var(--dsw-alias-brand-primary);
+        color: var(--dsw-alias-label-secondary);
       }
       .orca-pinned-body {
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: 0;
         max-height: min(282px, 36vh);
-        padding: 0 1px 0 0;
+        padding: 0 5px 4px;
         overflow-y: auto;
         overscroll-behavior: contain;
         scrollbar-width: thin;
@@ -3969,11 +3978,11 @@ window.__ModuleLoader__.load({
         border-radius: 8px;
       }
       .orca-group + .orca-group {
-        margin-top: 10px;
+        margin-top: 7px;
       }
       .orca-group--loose {
-        margin-top: 12px;
-        padding-top: 4px;
+        margin-top: 10px;
+        padding-top: 7px;
         border-top: 1px solid var(--dsw-alias-border-l1);
       }
       .orca-loose-workspace {
@@ -4016,10 +4025,12 @@ window.__ModuleLoader__.load({
       .orca-loose-workspace-body {
         display: flex;
         flex-direction: column;
-        gap: 1px;
-        margin-left: 9px;
-        padding-left: 4px;
-        border-left: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
+        gap: 0;
+        margin: 2px 0 6px 8px;
+        padding: 0 5px 4px;
+        border: 1px solid var(--dsw-alias-border-l1);
+        border-radius: 8px;
+        background: var(--dsw-alias-bg-layer-1);
       }
       .orca-group-row {
         position: relative;
@@ -4028,22 +4039,24 @@ window.__ModuleLoader__.load({
         display: flex;
         align-items: center;
         gap: 6px;
-        height: 30px;
+        height: 31px;
         min-width: 0;
-        padding: 0 7px;
-        border: 1px solid transparent;
+        padding: 0 8px;
+        border: 1px solid var(--dsw-alias-border-l1);
         border-radius: 7px;
-        background: transparent;
+        background: var(--dsw-alias-bg-layer-1);
+        box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary) 2%, transparent);
         color: var(--dsw-alias-label-secondary);
         font-size: 12px;
-        font-weight: 600;
+        font-weight: 500;
         letter-spacing: 0.01em;
         cursor: pointer;
         user-select: none;
-        transition: background-color 120ms ease, color 120ms ease;
+        transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
       }
       .orca-group-head:hover {
-        background: var(--orca-hover);
+        border-color: var(--dsw-alias-border-l2);
+        background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 92%, var(--orca-hover));
         color: var(--dsw-alias-label-primary);
       }
       .orca-group-icon {
@@ -4074,31 +4087,32 @@ window.__ModuleLoader__.load({
       .orca-group-body {
         display: flex;
         flex-direction: column;
-        gap: 2px;
-        margin: 2px 0 0 9px;
-        padding: 1px 0 3px 5px;
+        gap: 0;
+        margin: 4px 0 0 8px;
+        padding: 0 0 3px 5px;
         border-left: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
       }
       .orca-group--ungrouped {
-        margin-top: 10px;
+        margin-top: 7px;
       }
       .orca-group--ungrouped .orca-group-head {
-        height: 32px;
-        padding-top: 3px;
-        border-top: 1px solid var(--dsw-alias-border-l1);
-        border-radius: 0;
-        background: transparent;
+        height: 31px;
+        padding-top: 0;
       }
       .orca-group--ungrouped .orca-group-head:hover {
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent);
+        background: var(--dsw-alias-bg-layer-1);
       }
       .orca-project {
         display: flex;
         flex-direction: column;
-        gap: 1px;
+        gap: 0;
+        border: 1px solid var(--dsw-alias-border-l1);
+        border-radius: 8px;
+        background: var(--dsw-alias-bg-layer-1);
+        box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary) 2%, transparent);
       }
       .orca-project + .orca-project {
-        margin-top: 1px;
+        margin-top: 4px;
       }
       .orca-project-row {
         position: relative;
@@ -4107,9 +4121,9 @@ window.__ModuleLoader__.load({
         display: flex;
         align-items: center;
         gap: 6px;
-        height: 32px;
-        padding: 0 6px 0 4px;
-        border-radius: var(--dsw-radius-sm, 6px);
+        height: 33px;
+        padding: 0 7px 0 5px;
+        border-radius: 7px 7px 0 0;
         color: var(--dsw-alias-label-primary);
         font-size: 14px;
         font-weight: 500;
@@ -4117,6 +4131,9 @@ window.__ModuleLoader__.load({
         cursor: pointer;
         user-select: none;
         transition: background-color 120ms ease, color 120ms ease;
+      }
+      .orca-project-head[aria-expanded='false'] {
+        border-radius: 7px;
       }
       .orca-project-head:hover {
         background: var(--orca-hover);
@@ -4157,51 +4174,60 @@ window.__ModuleLoader__.load({
       .orca-project-body {
         display: flex;
         flex-direction: column;
-        gap: 1px;
-        padding: 1px 0 2px;
+        gap: 0;
+        padding: 0 5px 4px;
+        border-top: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
       }
       .orca-project-body.is-guided {
-        margin-left: 11px;
-        padding: 1px 0 3px 4px;
-        border-left: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
+        margin-left: 0;
+        padding: 0 5px 4px;
+        border-left: 0;
       }
       .orca-session {
         position: relative;
         display: flex;
         align-items: stretch;
         min-width: 0;
-        min-height: 35px;
-        margin: 1px 0;
-        border: 1px solid transparent;
-        border-radius: 8px;
+        min-height: 33px;
+        margin: 0;
+        border: 0;
+        border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+        border-radius: 0;
         background: transparent;
-        transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+        transition: background-color 120ms ease, box-shadow 120ms ease;
       }
       .orca-session.has-meta {
-        min-height: 47px;
-        background: var(--orca-row);
+        min-height: 43px;
+        background: transparent;
+      }
+      .orca-pinned-body > .orca-session:last-child,
+      .orca-project-body > .orca-session:last-child,
+      .orca-loose-workspace-body > .orca-session:last-child,
+      .orca-flat > .orca-session:last-child,
+      .orca-search > .orca-session:last-child {
+        border-bottom-color: transparent;
       }
       .orca-session:hover {
-        border-color: var(--orca-row-border);
         background: var(--orca-hover);
       }
       .orca-session.is-current {
-        border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 28%, transparent);
-        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent);
+        border-bottom-color: transparent;
+        border-radius: 6px;
+        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 9%, transparent);
         box-shadow: inset 2px 0 0 var(--dsw-alias-brand-primary);
       }
       .orca-session-main {
         display: flex;
         flex-direction: column;
         justify-content: center;
-        gap: 2px;
+        gap: 1px;
         min-width: 0;
         width: 100%;
-        padding: 4px 8px;
-        border-radius: 7px;
+        padding: 3px 8px;
+        border-radius: 5px;
         color: var(--dsw-alias-label-primary);
         font-size: 14px;
-        line-height: 19px;
+        line-height: 18px;
         cursor: pointer;
         user-select: none;
       }
@@ -4309,7 +4335,6 @@ window.__ModuleLoader__.load({
         border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 35%, transparent);
       }
       .orca-session.is-pinned-ref:not(.is-current) {
-        border-color: transparent;
         background: transparent;
       }
       .orca-session.is-pinned-ref .orca-session-title,

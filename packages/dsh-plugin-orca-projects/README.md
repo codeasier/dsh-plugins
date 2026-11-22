@@ -38,10 +38,12 @@ Open the sidebar view options (the sliders button next to **项目**), choose
 - **Compact session cards.** Cross-project sessions use two lines: a title,
   then worktree and project chips. Project, pinned, flat, and search rows share
   the same geometry, with the project chip only where the project is not already
-  the surrounding header. Rows without metadata collapse to one line. Lightweight
-  theme-token surfaces, reduced indentation, and full-width titles keep the
-  sidebar readable at narrow widths; hover actions overlay the row instead of
-  permanently reserving title space.
+  the surrounding header. Rows without metadata collapse to one line. Pinned,
+  project, loose-workspace, flat, and search sessions share one raised container
+  per section with internal hairline separators, rather than one bordered card
+  per session; group and project headers are lightweight folding cards. Reduced
+  indentation and full-width titles keep the sidebar readable at narrow widths;
+  hover actions overlay the row instead of permanently reserving title space.
 - **Worktree labels.** Session chips use the Host-resolved checkout identity,
   including worktrees in arbitrary directories. Ordinary subdirectories inherit
   their checkout's label. Without a resolved identity, the client recognizes
