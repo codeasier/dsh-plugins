@@ -9,8 +9,11 @@ window.__ModuleLoader__.load({
     const UNGROUPED = '__ungrouped__'
     const MODES = ['orca', 'workspace', 'workspace-tree', 'flat']
     const FILTERS = ['hide', 'all', 'only']
+    const FONTS = ['system', 'mono', 'jetbrains']
+    const SIZES = ['sm', 'md', 'lg']
     const EMPTY_STATUS = new Map()
     const SessionStatusContext = React.createContext(null)
+    const SessionNameContext = React.createContext(null)
     const WorkspacePathContext = React.createContext(null)
 
     const en = {
@@ -39,6 +42,14 @@ window.__ModuleLoader__.load({
       'filter.all': 'All conversations (show archived)',
       'filter.only': 'Archived only',
       'filter.activeOnly': 'Active sessions only',
+      'appearance.font': 'Font',
+      'font.system': 'System',
+      'font.mono': 'Monospace (SF Mono / Menlo)',
+      'font.jetbrains': 'JetBrains Mono',
+      'appearance.size': 'Text size',
+      'size.sm': 'Small',
+      'size.md': 'Medium',
+      'size.lg': 'Large',
       'active.empty': 'No active sessions',
       'active.hint': 'Turn off Active sessions only to see every session.',
       'active.showAll': 'Show all sessions',
@@ -100,6 +111,13 @@ window.__ModuleLoader__.load({
       'session.copyId': 'Copy session ID',
       'session.copied': 'Session ID copied',
       'session.copyFailed': 'Copy failed',
+      'session.rename': 'Rename session',
+      'session.renamePlaceholder': 'Session title',
+      'session.renamed': 'Renamed to “{name}”',
+      'session.renamedLocally': 'Saved “{name}” as a local title',
+      'session.nameReset': 'Restore the Host title',
+      'session.nameResetDone': 'Restored “{name}”',
+      'session.renameUnavailable': 'Renaming is unavailable in this build.',
       'session.archivedHint': 'Archived',
       'session.status.archived': 'Archived',
       'session.status.pending': 'Waiting for your input',
@@ -128,6 +146,7 @@ window.__ModuleLoader__.load({
       'toast.projectFailed': 'Could not update the workspace.',
       'toast.pinFailed': 'Could not update the pin.',
       'toast.archiveFailed': 'Could not archive the session.',
+      'toast.renameFailed': 'Could not rename the session.',
       'empty.projects': 'No projects yet',
       'empty.projectsHint': 'Add a folder to start a project.',
       'empty.sessions': 'No sessions',
@@ -166,6 +185,14 @@ window.__ModuleLoader__.load({
       'filter.all': '全部对话（显示已归档）',
       'filter.only': '仅显示已归档',
       'filter.activeOnly': '仅活跃会话',
+      'appearance.font': '字体',
+      'font.system': '系统默认',
+      'font.mono': '等宽（SF Mono / Menlo）',
+      'font.jetbrains': 'JetBrains Mono',
+      'appearance.size': '字号',
+      'size.sm': '小',
+      'size.md': '中',
+      'size.lg': '大',
       'active.empty': '暂无活跃会话',
       'active.hint': '关闭“仅活跃会话”可查看全部会话。',
       'active.showAll': '查看全部会话',
@@ -226,6 +253,13 @@ window.__ModuleLoader__.load({
       'session.copyId': '复制 Session ID',
       'session.copied': 'Session ID 已复制',
       'session.copyFailed': '复制失败',
+      'session.rename': '重命名会话',
+      'session.renamePlaceholder': '会话标题',
+      'session.renamed': '已重命名为“{name}”',
+      'session.renamedLocally': '已将“{name}”保存为本地标题',
+      'session.nameReset': '恢复 Host 标题',
+      'session.nameResetDone': '已恢复“{name}”',
+      'session.renameUnavailable': '当前版本不支持重命名会话。',
       'session.archivedHint': '已归档',
       'session.status.archived': '已归档',
       'session.status.pending': '等待你的操作',
@@ -253,6 +287,7 @@ window.__ModuleLoader__.load({
       'toast.projectFailed': '无法更新工作区。',
       'toast.pinFailed': '无法更新置顶状态。',
       'toast.archiveFailed': '无法归档该会话。',
+      'toast.renameFailed': '无法重命名该会话。',
       'empty.projects': '暂无项目',
       'empty.projectsHint': '添加一个文件夹来开始项目。',
       'empty.sessions': '暂无会话',
@@ -662,10 +697,13 @@ window.__ModuleLoader__.load({
         orderBy: 'updated',
         archivedFilter: 'hide',
         activeOnly: false,
+        font: 'mono',
+        fontSize: 'sm',
         groups: [],
         assignments: {},
         projectNames: {},
         sessionProjects: {},
+        sessionNames: {},
         projectOrder: {},
         sessionOrder: {},
         collapsed: {},
@@ -684,6 +722,8 @@ window.__ModuleLoader__.load({
       if (raw.orderBy === 'manual' || raw.orderBy === 'updated') next.orderBy = raw.orderBy
       if (FILTERS.includes(raw.archivedFilter)) next.archivedFilter = raw.archivedFilter
       if (typeof raw.activeOnly === 'boolean') next.activeOnly = raw.activeOnly
+      if (FONTS.includes(raw.font)) next.font = raw.font
+      if (SIZES.includes(raw.fontSize)) next.fontSize = raw.fontSize
 
       if (Array.isArray(raw.groups)) {
         const seen = new Set()
@@ -711,6 +751,18 @@ window.__ModuleLoader__.load({
           if (typeof sessionId !== 'string' || typeof projectId !== 'string') continue
           if (!sessionId || !projectId) continue
           next.sessionProjects[sessionId] = projectId
+          count += 1
+        }
+      }
+
+      if (raw.sessionNames && typeof raw.sessionNames === 'object') {
+        let count = 0
+        for (const [sessionId, value] of Object.entries(raw.sessionNames)) {
+          if (count >= 5000) break
+          if (typeof sessionId !== 'string' || typeof value !== 'string') continue
+          const name = value.trim()
+          if (!sessionId || !name || name.length > 200) continue
+          next.sessionNames[sessionId] = name
           count += 1
         }
       }
@@ -909,6 +961,19 @@ window.__ModuleLoader__.load({
       const collapsed = { ...(state.collapsed || {}) }
       collapsed[key] = !isCollapsed(state, key, defaultExpanded)
       return { ...state, collapsed }
+    }
+
+    function withSessionName(state, sessionId, title) {
+      const sessionNames = { ...(state.sessionNames || {}) }
+      sessionNames[sessionId] = title
+      return { ...state, sessionNames }
+    }
+
+    function withoutSessionName(state, sessionId) {
+      if (!state.sessionNames || !(sessionId in state.sessionNames)) return state
+      const sessionNames = { ...state.sessionNames }
+      delete sessionNames[sessionId]
+      return { ...state, sessionNames }
     }
 
     function archivedSetOf(snapshot) {
@@ -1389,6 +1454,13 @@ window.__ModuleLoader__.load({
       return session.displayTitle || session.title || t('session.untitled')
     }
 
+    function isWriteOwnedRefusal(error) {
+      const message = errorMessage(error)
+      return /already owned by an active write handle|already bound to an active write handle/i.test(
+        message,
+      )
+    }
+
     function errorMessage(error) {
       if (!error) return ''
       if (typeof error === 'string') return error
@@ -1502,7 +1574,8 @@ window.__ModuleLoader__.load({
       const completed = !archived && Boolean(liveStatus?.completionUnread)
       const pending = !archived && Boolean(liveStatus?.pendingInteraction)
       const pinHint = Boolean(props.pinHint)
-      const title = sessionLabel(session, props.currentId, t)
+      const nameOverlay = React.useContext(SessionNameContext)
+      const title = nameOverlay?.[session.id] || sessionLabel(session, props.currentId, t)
       const showMeta = variant === 'pinned' || variant === 'flat' || variant === 'search'
       const meta = showMeta
         ? project
@@ -2725,6 +2798,7 @@ window.__ModuleLoader__.load({
         unpinSession: unpinSessionService,
         archiveSession: archiveSessionService,
         unarchiveSession: unarchiveSessionService,
+        renameSession: renameSessionService,
       } = props
 
       const [state, setState] = React.useState(loadState)
@@ -2902,6 +2976,14 @@ window.__ModuleLoader__.load({
       const setActiveOnly = (activeOnly) => {
         setState((prev) => ({ ...prev, activeOnly: Boolean(activeOnly) }))
       }
+      const setFont = (font) => {
+        if (!FONTS.includes(font)) return
+        setState((prev) => ({ ...prev, font }))
+      }
+      const setFontSize = (fontSize) => {
+        if (!SIZES.includes(fontSize)) return
+        setState((prev) => ({ ...prev, fontSize }))
+      }
 
       const toggleGroup = (key, defaultExpanded) => {
         setState((prev) => toggleCollapsed(prev, key, defaultExpanded))
@@ -2981,10 +3063,13 @@ window.__ModuleLoader__.load({
         window.setTimeout(scrollToRow, 50)
       }
 
+      const labelFor = (session) =>
+        state.sessionNames?.[session.id] || sessionLabel(session, currentId, t)
+
       const pin = async (session) => {
         try {
           await pinSessionService(session.id)
-          showToast(t('session.pinned', { name: sessionLabel(session, currentId, t) }))
+          showToast(t('session.pinned', { name: labelFor(session) }))
         } catch (error) {
           fail(error, 'toast.pinFailed')
         }
@@ -2992,7 +3077,7 @@ window.__ModuleLoader__.load({
       const unpin = async (session) => {
         try {
           await unpinSessionService(session.id)
-          showToast(t('session.unpinned', { name: sessionLabel(session, currentId, t) }))
+          showToast(t('session.unpinned', { name: labelFor(session) }))
         } catch (error) {
           fail(error, 'toast.pinFailed')
         }
@@ -3019,12 +3104,12 @@ window.__ModuleLoader__.load({
         }
       }
       const archive = (session) => {
-        archiveById(session.id, sessionLabel(session, currentId, t), false)
+        archiveById(session.id, labelFor(session), false)
       }
       const unarchive = async (session) => {
         try {
           await unarchiveSessionService(session.id)
-          showToast(t('session.unarchived', { name: sessionLabel(session, currentId, t) }))
+          showToast(t('session.unarchived', { name: labelFor(session) }))
         } catch (error) {
           fail(error, 'toast.archiveFailed')
         }
@@ -3036,6 +3121,41 @@ window.__ModuleLoader__.load({
         } catch {
           showToast(t('session.copyFailed'), 'error')
         }
+      }
+
+      const openRenameDialog = (session) => {
+        if (typeof renameSessionService !== 'function') {
+          showToast(t('session.renameUnavailable'), 'error')
+          return
+        }
+        setDialog({
+          key: `d${Date.now()}`,
+          kind: 'session-rename',
+          sessionId: session.id,
+          input: true,
+          value: labelFor(session),
+          placeholder: t('session.renamePlaceholder'),
+          title: t('session.rename'),
+          confirm: t('dialog.save'),
+        })
+      }
+      const renameById = async (sessionId, title) => {
+        try {
+          const applied = await renameSessionService(sessionId, title)
+          setState((prev) => withoutSessionName(prev, sessionId))
+          showToast(t('session.renamed', { name: applied || title }))
+        } catch (error) {
+          if (isWriteOwnedRefusal(error)) {
+            setState((prev) => withSessionName(prev, sessionId, title))
+            showToast(t('session.renamedLocally', { name: title }))
+            return
+          }
+          fail(error, 'toast.renameFailed')
+        }
+      }
+      const resetSessionName = (session) => {
+        setState((prev) => withoutSessionName(prev, session.id))
+        showToast(t('session.nameResetDone', { name: sessionLabel(session, currentId, t) }))
       }
 
       const startSession = (project) => {
@@ -3275,6 +3395,18 @@ window.__ModuleLoader__.load({
           icon: 'open',
           onSelect: () => openSession(session, variant),
         })
+        items.push({
+          label: t('session.rename'),
+          icon: 'edit',
+          onSelect: () => openRenameDialog(session),
+        })
+        if (state.sessionNames?.[session.id]) {
+          items.push({
+            label: t('session.nameReset'),
+            icon: 'restore',
+            onSelect: () => resetSessionName(session),
+          })
+        }
         items.push({ divider: true })
         items.push({ label: t('session.copyId'), icon: 'copy', onSelect: () => copy(session) })
         items.push(
@@ -3446,6 +3578,40 @@ window.__ModuleLoader__.load({
             label: t('filter.only'),
             checked: state.archivedFilter === 'only',
             onSelect: () => setFilter('only'),
+          },
+          { divider: true },
+          { section: t('appearance.font') },
+          {
+            label: t('font.system'),
+            checked: state.font === 'system',
+            onSelect: () => setFont('system'),
+          },
+          {
+            label: t('font.mono'),
+            checked: state.font === 'mono',
+            onSelect: () => setFont('mono'),
+          },
+          {
+            label: t('font.jetbrains'),
+            checked: state.font === 'jetbrains',
+            onSelect: () => setFont('jetbrains'),
+          },
+          { divider: true },
+          { section: t('appearance.size') },
+          {
+            label: t('size.sm'),
+            checked: state.fontSize === 'sm',
+            onSelect: () => setFontSize('sm'),
+          },
+          {
+            label: t('size.md'),
+            checked: state.fontSize === 'md',
+            onSelect: () => setFontSize('md'),
+          },
+          {
+            label: t('size.lg'),
+            checked: state.fontSize === 'lg',
+            onSelect: () => setFontSize('lg'),
           },
         ]
         if (state.mode === 'orca') {
@@ -3629,6 +3795,8 @@ window.__ModuleLoader__.load({
           applyMigration(current)
         } else if (current.kind === 'archive-confirm') {
           archiveById(current.sessionId, current.sessionTitle, true)
+        } else if (current.kind === 'session-rename') {
+          renameById(current.sessionId, value)
         }
       }
 
@@ -3639,6 +3807,8 @@ window.__ModuleLoader__.load({
         archive,
         unarchive,
         copy,
+        rename: openRenameDialog,
+        resetName: resetSessionName,
         menu: openSessionMenu,
         startSession,
         openWorkspace,
@@ -3660,7 +3830,13 @@ window.__ModuleLoader__.load({
 
       const content = h(
         'div',
-        { ref: searchRoot, className: 'orca-root', 'data-mode': state.mode },
+        {
+          ref: searchRoot,
+          className: 'orca-root',
+          'data-mode': state.mode,
+          'data-font': state.font,
+          'data-size': state.fontSize,
+        },
         h(Header, {
           t,
           mode: state.mode,
@@ -3744,7 +3920,11 @@ window.__ModuleLoader__.load({
       return h(
         SessionStatusContext.Provider,
         { value: statusMap },
-        h(WorkspacePathContext.Provider, { value: view.workspaceBySession }, content),
+        h(
+          WorkspacePathContext.Provider,
+          { value: view.workspaceBySession },
+          h(SessionNameContext.Provider, { value: state.sessionNames }, content),
+        ),
       )
     }
 
@@ -3759,6 +3939,12 @@ window.__ModuleLoader__.load({
         --orca-hover: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
         --orca-row: color-mix(in srgb, var(--dsw-alias-label-primary) 3%, transparent);
         --orca-row-border: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+        --orca-title-size: 10px;
+        --orca-title-lh: 15px;
+        --orca-chip-size: 9px;
+        --orca-chip-h: 14px;
+        --orca-row-min: 30px;
+        --orca-row-min-meta: 38px;
         display: flex;
         flex-direction: column;
         min-width: 0;
@@ -3768,6 +3954,46 @@ window.__ModuleLoader__.load({
         font-size: 14px;
         line-height: 1.4;
         -webkit-font-smoothing: antialiased;
+      }
+      .orca-root[data-font='mono'] {
+        font-family: 'SF Mono', Menlo, Monaco, Consolas, 'Courier New', monospace;
+      }
+      .orca-root[data-font='jetbrains'] {
+        font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+      }
+      .orca-root[data-font='mono'] .orca-session-title,
+      .orca-root[data-font='mono'] .orca-project-title,
+      .orca-root[data-font='mono'] .orca-group-title,
+      .orca-root[data-font='mono'] .orca-loose-workspace-title,
+      .orca-root[data-font='jetbrains'] .orca-session-title,
+      .orca-root[data-font='jetbrains'] .orca-project-title,
+      .orca-root[data-font='jetbrains'] .orca-group-title,
+      .orca-root[data-font='jetbrains'] .orca-loose-workspace-title {
+        letter-spacing: -0.01em;
+      }
+      .orca-root[data-size='sm'] {
+        --orca-title-size: 10px;
+        --orca-title-lh: 15px;
+        --orca-chip-size: 9px;
+        --orca-chip-h: 14px;
+        --orca-row-min: 30px;
+        --orca-row-min-meta: 38px;
+      }
+      .orca-root[data-size='md'] {
+        --orca-title-size: 11px;
+        --orca-title-lh: 16px;
+        --orca-chip-size: 10px;
+        --orca-chip-h: 15px;
+        --orca-row-min: 31px;
+        --orca-row-min-meta: 40px;
+      }
+      .orca-root[data-size='lg'] {
+        --orca-title-size: 12px;
+        --orca-title-lh: 18px;
+        --orca-chip-size: 10px;
+        --orca-chip-h: 16px;
+        --orca-row-min: 33px;
+        --orca-row-min-meta: 43px;
       }
       .orca-header {
         flex: none;
@@ -3901,13 +4127,13 @@ window.__ModuleLoader__.load({
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 18px;
-        height: 17px;
+        min-width: calc(var(--orca-chip-h) + 4px);
+        height: calc(var(--orca-chip-h) + 2px);
         padding: 0 5px;
         border-radius: 5px;
         background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
         color: var(--dsw-alias-label-secondary);
-        font-size: 10px;
+        font-size: var(--orca-chip-size);
         font-weight: 500;
         font-variant-numeric: tabular-nums;
         line-height: 1;
@@ -3967,12 +4193,7 @@ window.__ModuleLoader__.load({
         display: flex;
         flex-direction: column;
         gap: 0;
-        max-height: min(282px, 36vh);
         padding: 0 5px 4px;
-        overflow-y: auto;
-        overscroll-behavior: contain;
-        scrollbar-width: thin;
-        scrollbar-color: var(--dsw-alias-scrollbar-bg-l2, transparent) transparent;
       }
       .orca-group {
         border-radius: 8px;
@@ -4001,7 +4222,7 @@ window.__ModuleLoader__.load({
         padding: 0 7px 0 9px;
         border-radius: 6px;
         color: var(--dsw-alias-label-secondary);
-        font-size: 12px;
+        font-size: calc(var(--orca-title-size) + 1px);
         font-weight: 500;
         cursor: pointer;
         user-select: none;
@@ -4047,7 +4268,7 @@ window.__ModuleLoader__.load({
         background: var(--dsw-alias-bg-layer-1);
         box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary) 2%, transparent);
         color: var(--dsw-alias-label-secondary);
-        font-size: 12px;
+        font-size: calc(var(--orca-title-size) + 1px);
         font-weight: 500;
         letter-spacing: 0.01em;
         cursor: pointer;
@@ -4125,9 +4346,9 @@ window.__ModuleLoader__.load({
         padding: 0 7px 0 5px;
         border-radius: 7px 7px 0 0;
         color: var(--dsw-alias-label-primary);
-        font-size: 14px;
+        font-size: var(--orca-title-size);
         font-weight: 500;
-        line-height: 20px;
+        line-height: var(--orca-title-lh);
         cursor: pointer;
         user-select: none;
         transition: background-color 120ms ease, color 120ms ease;
@@ -4188,7 +4409,7 @@ window.__ModuleLoader__.load({
         display: flex;
         align-items: stretch;
         min-width: 0;
-        min-height: 33px;
+        min-height: var(--orca-row-min);
         margin: 0;
         border: 0;
         border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
@@ -4197,7 +4418,7 @@ window.__ModuleLoader__.load({
         transition: background-color 120ms ease, box-shadow 120ms ease;
       }
       .orca-session.has-meta {
-        min-height: 43px;
+        min-height: var(--orca-row-min-meta);
         background: transparent;
       }
       .orca-pinned-body > .orca-session:last-child,
@@ -4226,8 +4447,8 @@ window.__ModuleLoader__.load({
         padding: 3px 8px;
         border-radius: 5px;
         color: var(--dsw-alias-label-primary);
-        font-size: 14px;
-        line-height: 18px;
+        font-size: var(--orca-title-size);
+        line-height: var(--orca-title-lh);
         cursor: pointer;
         user-select: none;
       }
@@ -4266,15 +4487,15 @@ window.__ModuleLoader__.load({
         flex: 0 1 auto;
         min-width: 0;
         max-width: 52%;
-        height: 16px;
+        height: var(--orca-chip-h);
         padding: 0 5px;
         border: 0;
         border-radius: 4px;
         overflow: hidden;
         color: var(--dsw-alias-label-secondary);
         background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent);
-        font-size: 10.5px;
-        line-height: 16px;
+        font-size: var(--orca-chip-size);
+        line-height: var(--orca-chip-h);
       }
       .orca-session-project-icon {
         flex: none;
@@ -4285,7 +4506,7 @@ window.__ModuleLoader__.load({
         text-overflow: ellipsis;
         white-space: nowrap;
         color: inherit;
-        font-size: 10.5px;
+        font-size: var(--orca-chip-size);
       }
       .orca-worktree {
         display: inline-flex;
@@ -4293,7 +4514,7 @@ window.__ModuleLoader__.load({
         flex: 0 1 auto;
         min-width: 0;
         max-width: 108px;
-        height: 16px;
+        height: var(--orca-chip-h);
         padding: 0 5px;
         border: 0;
         border-radius: 4px;
@@ -4301,8 +4522,8 @@ window.__ModuleLoader__.load({
         white-space: nowrap;
         color: var(--dsw-alias-label-secondary);
         background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent);
-        font-size: 10.5px;
-        line-height: 16px;
+        font-size: var(--orca-chip-size);
+        line-height: var(--orca-chip-h);
       }
       .orca-worktree-label {
         min-width: 0;
@@ -4322,12 +4543,12 @@ window.__ModuleLoader__.load({
         align-items: center;
         gap: 2px;
         flex: none;
-        height: 16px;
+        height: var(--orca-chip-h);
         padding: 0 4px;
         border: 1px solid var(--dsw-alias-border-l1);
         border-radius: 999px;
         color: var(--dsw-alias-label-secondary);
-        font-size: 10px;
+        font-size: var(--orca-chip-size);
         line-height: 1;
       }
       .orca-session-hint.is-archived {
@@ -4719,6 +4940,39 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * Rename the Host-owned session title. Reaching `session.rename` needs a
+     * retained generation, so retain, rename, and release immediately; the
+     * sidebar never keeps session history alive.
+     */
+    /**
+     * Rename the Host-owned session title. The Host's `session.rename` Remote
+     * resumes the session itself, so the sidebar never opens a second write
+     * handle (a Client-side retain would collide with the open panel). The
+     * retained-reference path stays as a fallback for older Hosts.
+     */
+    async function renameDurableSession(clients, sessionId, title) {
+      const namespace = clients.remoteSession || clients.remote?.session
+      const rename =
+        typeof namespace?.rename === 'function' ? (request) => namespace.rename(request) : undefined
+      if (rename) {
+        const result = await rename({ sessionId, title })
+        if (result?.ok !== true) {
+          throw new Error(result?.error?.message || 'rename failed')
+        }
+        return result.value?.title ?? title
+      }
+      const result = await clients.sessions.using(
+        sessionId,
+        { source: 'workspaceOperation' },
+        (reference) => reference.binding.session.rename(title),
+      )
+      if (result?.ok !== true) {
+        throw new Error(result?.error?.message || 'rename failed')
+      }
+      return result.value?.title ?? title
+    }
+
     const inject = [
       'slots',
       'locale',
@@ -4728,6 +4982,8 @@ window.__ModuleLoader__.load({
       'uiWorkspace',
       'layout',
       'connection',
+      'remote',
+      'remote.session',
     ]
 
     function apply(ctx) {
@@ -4837,6 +5093,16 @@ window.__ModuleLoader__.load({
               unpinSession: (sessionId) => workspaces.unpinSession(sessionId),
               archiveSession: (sessionId, options) => workspaces.archiveSession(sessionId, options),
               unarchiveSession: (sessionId) => workspaces.unarchiveSession(sessionId),
+              renameSession: (sessionId, title) =>
+                renameDurableSession(
+                  {
+                    remote: ctx.get('remote'),
+                    remoteSession: ctx.get('remote.session'),
+                    sessions,
+                  },
+                  sessionId,
+                  title,
+                ),
             }),
           },
           OrcaBrowser,

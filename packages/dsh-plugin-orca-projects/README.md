@@ -33,8 +33,8 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   session stays in place, grayed, with a **置顶** badge. Opening a pinned session
   does not expand its project; use the pinned row's `...` menu → **在项目中显示**
   to expand the project and scroll to the original row. Unpin it and it is an
-  ordinary project session again. A long shelf scrolls inside a bounded area so
-  it cannot push every project below the fold.
+  ordinary project session again. The shelf expands to its full content height
+  and follows the outer sidebar scroller, without a nested scrollbar.
 - **Compact session cards.** Cross-project sessions use two lines: a title,
   then worktree and project chips. Project, pinned, flat, and search rows share
   the same geometry, with the project chip only where the project is not already
@@ -63,6 +63,12 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   localized labels and tooltips; disclosure controls expose `aria-expanded`, and
   the current session exposes `aria-current` for keyboard and assistive-technology
   navigation.
+- **Appearance.** View options → **字体** switches between the host system font,
+  monospace (`SF Mono` / `Menlo` / `Consolas`), and `JetBrains Mono`; **字号**
+  offers 10px, 11px, and 12px titles. Monospace at 10px is the default, and the
+  worktree/project chips, section headers, and row heights scale with it. Both
+  choices persist in `localStorage` beside the other view options, and only
+  affect this sidebar.
 - **Custom groups.** Use a project's `...` menu → **移动到分组** to create a group
   or move the project into one. You can also drag a project onto a group. Group
   headers can be renamed, deleted, and used to add projects; deleting a group
@@ -84,11 +90,15 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   browser-local `sessionId → projectId` mapping; DSH workspaces, `sessionIds`,
   and session ownership stay unchanged. **Undo session migration** clears the
   mapping.
-- **Session actions** include pin/unpin, archive/unarchive, open, and copy the
-  Session ID. Project actions include a new session (per worktree), open the
-  main workspace, rename the project label, delete the project, and move it to
-  a group.
+- **Session actions** include pin/unpin, archive/unarchive, open, **rename**, and
+  copy the Session ID. Renaming asks the Host first, which writes the durable
+  session title shared with every client; when the Host refuses because another
+  write handle owns the session, the sidebar keeps the new title locally and
+  offers **Restore the Host title** in the same menu. Project actions include a
+  new session (per worktree), open the main workspace, rename the project label,
+  delete the project, and move it to a group.
 - **Persistence.** Custom groups, assignments, manual project/session order,
+  local session titles (only when the Host refused a rename),
   external session-to-project mappings, collapse state, and view options are
   saved in the browser's `localStorage`
   under `dsh.orca-projects.v1` for the current DSH origin. Pins and archived
@@ -198,8 +208,9 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
   check the results in a real page. Expansion, current-session, and live-status
   accessibility semantics have server-rendered regressions.
 - The visual refinement was rendered at a 264px sidebar width in light and dark
-  themes with 22 projects and seven pinned sessions. The shelf remained bounded
-  and scrollable, ordinary loose-session rows showed no redundant project chip,
+  themes with 22 projects and seven pinned sessions. The shelf expanded fully
+  without a nested scrollbar, project and session titles used 12px text, ordinary
+  loose-session rows showed no redundant project chip,
   project/group/session nesting stayed within the narrow column, and no slot
   errors appeared. Hover actions, keyboard disclosure with Enter, search and
   Escape, current-project/current-session markers, and loose workspace groups

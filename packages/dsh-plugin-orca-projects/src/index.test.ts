@@ -59,10 +59,13 @@ interface State {
   orderBy: string
   archivedFilter: string
   activeOnly: boolean
+  font: string
+  fontSize: string
   groups: Group[]
   assignments: Record<string, string>
   projectNames: Record<string, string>
   sessionProjects?: Record<string, string>
+  sessionNames?: Record<string, string>
   projectOrder: Record<string, string[]>
   sessionOrder: Record<string, string[]>
   collapsed: Record<string, boolean>
@@ -369,10 +372,12 @@ function makeContext(data = snapshots()): {
   registrations: Array<{ options: UnknownRecord; component: unknown }>
   injected: string[]
   localeCalls: unknown[][]
+  renames: Array<{ sessionId: string; title: string }>
 } {
   const registrations: Array<{ options: UnknownRecord; component: unknown }> = []
   const injected: string[] = []
   const localeCalls: unknown[][] = []
+  const renames: Array<{ sessionId: string; title: string }> = []
   const { workspaceSnapshot, sessionSnapshot } = data
   const layoutSnapshot = { activePanelId: null }
   const statusSnapshot = new Map([
@@ -392,12 +397,35 @@ function makeContext(data = snapshots()): {
         getSnapshot: () => sessionSnapshot,
         subscribe: () => () => undefined,
       },
+      using: async (
+        sessionId: string,
+        _options: unknown,
+        operation: (reference: unknown) => Promise<unknown>,
+      ) => {
+        const reference = {
+          sessionId,
+          binding: {
+            session: {
+              rename: async (title: string) => ({ ok: true, value: { title, seq: 1 } }),
+            },
+          },
+        }
+        return operation(reference)
+      },
     },
     uiWorkspace: {},
     uiSession: {
       sessionStatus: {
         getSnapshot: () => statusSnapshot,
         subscribe: () => () => undefined,
+      },
+    },
+    remote: {
+      session: {
+        rename: async ({ sessionId, title }: { sessionId: string; title: string }) => {
+          renames.push({ sessionId, title })
+          return { ok: true, value: { title, seq: 1 } }
+        },
       },
     },
     layout: {
@@ -430,7 +458,7 @@ function makeContext(data = snapshots()): {
       },
     },
   }
-  return { ctx, registrations, injected, localeCalls }
+  return { ctx, registrations, injected, localeCalls, renames }
 }
 
 function project(view: View, path: string): ProjectView {
@@ -462,6 +490,71 @@ describe('client bundle', () => {
     const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
     expect(source).toContain('window.__ModuleLoader__.load({')
     expect(source).toContain("id: '@codeasier/dsh-plugin-orca-projects'")
+  })
+
+  it('keeps the pinned shelf in the outer sidebar scroller', () => {
+    const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+    const pinnedBody = source.match(/\.orca-pinned-body\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(pinnedBody).not.toContain('max-height')
+    expect(pinnedBody).not.toContain('overflow-y')
+    expect(source).toMatch(/\.orca-session-main\s*\{[^}]*font-size: var\(--orca-title-size\)/)
+    expect(source).toMatch(/\.orca-project-head\s*\{[^}]*font-size: var\(--orca-title-size\)/)
+  })
+
+  it('renames a session through the Host session face and releases it', async () => {
+    const client = loadClient()
+    const { ctx, registrations, renames } = makeContext()
+    client.apply(ctx)
+    const registration = registrations[0]
+    if (registration === undefined || typeof registration.options.inject !== 'function') {
+      throw new Error('sidebar registration missing its inject face')
+    }
+    const injected = (registration.options.inject as () => UnknownRecord)() as {
+      renameSession: (sessionId: string, title: string) => Promise<string>
+    }
+    expect(typeof injected.renameSession).toBe('function')
+    await expect(injected.renameSession('s-one', 'Renamed')).resolves.toBe('Renamed')
+    expect(renames).toEqual([{ sessionId: 's-one', title: 'Renamed' }])
+  })
+
+  it('falls back to a local title when the Host refuses write ownership', () => {
+    const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+    expect(source).toContain('isWriteOwnedRefusal')
+    expect(source).toMatch(/already owned by an active write handle/)
+    expect(source).toContain('withSessionName(prev, sessionId, title)')
+    expect(source).toContain("'session.renamedLocally'")
+    expect(source).toContain("'session.nameReset'")
+    const client = loadClient()
+    const state = client.__internals.sanitizeState({
+      ...client.__internals.defaultState(),
+      sessionNames: { 's-one': 'Local title', '': 'dropped', 's-two': '  ' },
+    })
+    expect(state.sessionNames).toEqual({ 's-one': 'Local title' })
+  })
+
+  it('offers rename in the session menu', () => {
+    const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+    expect(source).toContain("label: t('session.rename')")
+    expect(source).toContain("kind: 'session-rename'")
+    expect(source).toContain('renameById(current.sessionId, value)')
+    expect(source).toContain("'session.rename': '重命名会话'")
+  })
+
+  it('exposes font and text-size preferences on the sidebar root', () => {
+    const html = renderSidebar({ mode: 'orca' })
+    expect(html).toContain('data-font="mono"')
+    expect(html).toContain('data-size="sm"')
+    const system = renderSidebar({ mode: 'orca', font: 'system' })
+    expect(system).toContain('data-font="system"')
+    const large = renderSidebar({ mode: 'orca', fontSize: 'lg' })
+    expect(large).toContain('data-size="lg"')
+    const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+    expect(source).toContain("[data-font='mono']")
+    expect(source).toContain("[data-font='jetbrains']")
+    expect(source).toMatch(
+      /\[data-size='sm'\]\s*\{[^}]*--orca-title-size: 10px[^}]*--orca-chip-size: 9px/,
+    )
+    expect(source).toContain("[data-size='lg']")
   })
 
   it('registers the browser with a negative priority and the plugin locale namespace', () => {
