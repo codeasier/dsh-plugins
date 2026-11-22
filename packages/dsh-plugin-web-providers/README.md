@@ -74,12 +74,17 @@ plugin re-reads the section every time, so no restart and no remount.
 
 ## Settings
 
-The page checks one thing before anything else: whether the profile's `web` row
-actually selects this plugin. If it selects something else, every entry below
-saves cleanly and still never runs, so the page says so at the top, shows the
-current value, and offers to write both fields in one click. A host that does not
-expose the `web` row gets a short explanation instead of a button.
+**Profile web routing** shows the configured `web.searchProvider` and
+`web.fetchProvider` separately. An omitted setting is shown as Automatic /
+not specified; another provider ID is not an error by itself. These settings
+are not a health check and do not show the provider picked at call time.
 
+**Use this plugin for Search now** and **Use this plugin for Fetch now** each
+pin only that route to `web-providers` immediately. Neither action saves edits
+to the provider lists below or participates in the host Settings Save/Discard
+flow. Save or discard edits and make sure the relevant list has a saved
+selection before switching. If the host does not expose routing or is read-only,
+the page cannot switch it.
 
 Left user menu → Settings → **Web search / fetch**. The page uses the shell's
 design tokens (`--dsw-alias-*`, `--dsw-radius-*`), so it matches the neighbouring
