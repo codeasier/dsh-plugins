@@ -31,7 +31,7 @@ English | [中文](README.zh.md)
 | Plugin | What it adds | Version |
 |---|---|---|
 | [`@codeasier/dsh-plugin-hello`](./packages/dsh-plugin-hello) | A minimal, production-shaped DeepSeek Harness plugin: one configurable tool, display metadata, and independent release wiring. | `0.1.0` |
-| [`@codeasier/dsh-plugin-orca-projects`](./packages/dsh-plugin-orca-projects) | Orca-like project sidebar for the DSH Web and Desktop client: repository-aware worktree grouping, custom project groups, and a pinned session shelf. | `0.1.1` |
+| [`@codeasier/dsh-plugin-orca-projects`](./packages/dsh-plugin-orca-projects) | Orca-like project sidebar for the DSH Web and Desktop client: repository-aware worktree grouping, custom project groups, and a pinned session shelf. | `0.1.2` |
 | [`@codeasier/dsh-plugin-web-providers`](./packages/dsh-plugin-web-providers) | Configure any number of web search and web fetch vendors once, then switch the active one from Settings. | `0.2.1` |
 <!-- plugins:end -->
 
