@@ -3967,12 +3967,7 @@ window.__ModuleLoader__.load({
         display: flex;
         flex-direction: column;
         gap: 0;
-        max-height: min(282px, 36vh);
         padding: 0 5px 4px;
-        overflow-y: auto;
-        overscroll-behavior: contain;
-        scrollbar-width: thin;
-        scrollbar-color: var(--dsw-alias-scrollbar-bg-l2, transparent) transparent;
       }
       .orca-group {
         border-radius: 8px;
@@ -4125,7 +4120,7 @@ window.__ModuleLoader__.load({
         padding: 0 7px 0 5px;
         border-radius: 7px 7px 0 0;
         color: var(--dsw-alias-label-primary);
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 500;
         line-height: 20px;
         cursor: pointer;
@@ -4226,7 +4221,7 @@ window.__ModuleLoader__.load({
         padding: 3px 8px;
         border-radius: 5px;
         color: var(--dsw-alias-label-primary);
-        font-size: 14px;
+        font-size: 13px;
         line-height: 18px;
         cursor: pointer;
         user-select: none;

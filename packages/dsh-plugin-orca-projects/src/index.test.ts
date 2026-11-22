@@ -464,6 +464,15 @@ describe('client bundle', () => {
     expect(source).toContain("id: '@codeasier/dsh-plugin-orca-projects'")
   })
 
+  it('keeps the pinned shelf in the outer sidebar scroller', () => {
+    const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+    const pinnedBody = source.match(/\.orca-pinned-body\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(pinnedBody).not.toContain('max-height')
+    expect(pinnedBody).not.toContain('overflow-y')
+    expect(source).toMatch(/\.orca-session-main\s*\{[^}]*font-size: 13px/)
+    expect(source).toMatch(/\.orca-project-head\s*\{[^}]*font-size: 13px/)
+  })
+
   it('registers the browser with a negative priority and the plugin locale namespace', () => {
     const client = loadClient()
     const { ctx, registrations, injected, localeCalls } = makeContext()

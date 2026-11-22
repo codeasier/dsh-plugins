@@ -33,8 +33,8 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   session stays in place, grayed, with a **置顶** badge. Opening a pinned session
   does not expand its project; use the pinned row's `...` menu → **在项目中显示**
   to expand the project and scroll to the original row. Unpin it and it is an
-  ordinary project session again. A long shelf scrolls inside a bounded area so
-  it cannot push every project below the fold.
+  ordinary project session again. The shelf expands to its full content height
+  and follows the outer sidebar scroller, without a nested scrollbar.
 - **Compact session cards.** Cross-project sessions use two lines: a title,
   then worktree and project chips. Project, pinned, flat, and search rows share
   the same geometry, with the project chip only where the project is not already
@@ -198,8 +198,9 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
   check the results in a real page. Expansion, current-session, and live-status
   accessibility semantics have server-rendered regressions.
 - The visual refinement was rendered at a 264px sidebar width in light and dark
-  themes with 22 projects and seven pinned sessions. The shelf remained bounded
-  and scrollable, ordinary loose-session rows showed no redundant project chip,
+  themes with 22 projects and seven pinned sessions. The shelf expanded fully
+  without a nested scrollbar, project and session titles used 13px text, ordinary
+  loose-session rows showed no redundant project chip,
   project/group/session nesting stayed within the narrow column, and no slot
   errors appeared. Hover actions, keyboard disclosure with Enter, search and
   Escape, current-project/current-session markers, and loose workspace groups
