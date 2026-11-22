@@ -549,6 +549,16 @@ describe('sidebar review regressions', () => {
     expect(html.match(/data-session-id="s-loose"/g)).toHaveLength(1)
   })
 
+  it('exposes expansion, current-session and live-status semantics', () => {
+    const html = renderSidebar({ mode: 'orca', collapsed: { pinned: false } })
+    expect(html).toContain('aria-expanded="true"')
+    expect(html).toContain('aria-current="page"')
+    expect(html).toContain('orca-project has-current')
+    expect(html).toContain('role="img" aria-label="session.status.idle"')
+    expect(html).toContain('role="img" aria-label="session.status.pending"')
+    expect(html).toMatch(/class="orca-session[^"]*has-meta/)
+  })
+
   it('sorts projects by recent sessions without requiring custom groups', () => {
     const data = snapshots()
     const latest = data.sessionSnapshot.byId['s-two']
