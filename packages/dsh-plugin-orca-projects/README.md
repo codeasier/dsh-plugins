@@ -90,11 +90,15 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   browser-local `sessionId → projectId` mapping; DSH workspaces, `sessionIds`,
   and session ownership stay unchanged. **Undo session migration** clears the
   mapping.
-- **Session actions** include pin/unpin, archive/unarchive, open, and copy the
-  Session ID. Project actions include a new session (per worktree), open the
-  main workspace, rename the project label, delete the project, and move it to
-  a group.
+- **Session actions** include pin/unpin, archive/unarchive, open, **rename**, and
+  copy the Session ID. Renaming asks the Host first, which writes the durable
+  session title shared with every client; when the Host refuses because another
+  write handle owns the session, the sidebar keeps the new title locally and
+  offers **Restore the Host title** in the same menu. Project actions include a
+  new session (per worktree), open the main workspace, rename the project label,
+  delete the project, and move it to a group.
 - **Persistence.** Custom groups, assignments, manual project/session order,
+  local session titles (only when the Host refused a rename),
   external session-to-project mappings, collapse state, and view options are
   saved in the browser's `localStorage`
   under `dsh.orca-projects.v1` for the current DSH origin. Pins and archived
