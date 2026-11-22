@@ -101,6 +101,11 @@ window.__ModuleLoader__.load({
       'session.copied': 'Session ID copied',
       'session.copyFailed': 'Copy failed',
       'session.archivedHint': 'Archived',
+      'session.status.archived': 'Archived',
+      'session.status.pending': 'Waiting for your input',
+      'session.status.running': 'Running',
+      'session.status.completed': 'Finished, not yet viewed',
+      'session.status.idle': 'Idle',
       'session.archivedNotOpenable': 'Restore this session before opening it.',
       'session.new': 'New session',
       'session.untitled': 'Untitled',
@@ -222,6 +227,11 @@ window.__ModuleLoader__.load({
       'session.copied': 'Session ID 已复制',
       'session.copyFailed': '复制失败',
       'session.archivedHint': '已归档',
+      'session.status.archived': '已归档',
+      'session.status.pending': '等待你的操作',
+      'session.status.running': '正在运行',
+      'session.status.completed': '已完成，尚未查看',
+      'session.status.idle': '空闲',
       'session.archivedNotOpenable': '请先取消归档再打开。',
       'session.new': '新会话',
       'session.untitled': '未命名',
@@ -1435,20 +1445,22 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function SessionStatusIndicator({ running, completed, pending, archived }) {
-      if (archived) {
-        return h('span', { className: 'orca-status-dot is-archived', 'aria-hidden': 'true' })
-      }
-      if (pending) {
-        return h('span', { className: 'orca-status-dot is-pending', 'aria-hidden': 'true' })
-      }
-      if (running) {
-        return h('span', { className: 'orca-spinner', 'aria-hidden': 'true' })
-      }
-      if (completed) {
-        return h('span', { className: 'orca-status-dot is-completed', 'aria-hidden': 'true' })
-      }
-      return h('span', { className: 'orca-status-dot', 'aria-hidden': 'true' })
+    function SessionStatusIndicator({ running, completed, pending, archived, t }) {
+      const state = archived
+        ? 'archived'
+        : pending
+          ? 'pending'
+          : running
+            ? 'running'
+            : completed
+              ? 'completed'
+              : 'idle'
+      const className =
+        state === 'running'
+          ? 'orca-spinner'
+          : cx('orca-status-dot', state !== 'idle' && `is-${state}`)
+      const label = t(`session.status.${state}`)
+      return h('span', { className, role: 'img', 'aria-label': label, title: label })
     }
 
     function CountBadge({ children }) {
@@ -1512,7 +1524,7 @@ window.__ModuleLoader__.load({
               className: cx('orca-worktree', worktree.main && 'is-main'),
               title: session.cwd ? `${worktree.label} — ${session.cwd}` : worktree.label,
             },
-            worktree.label,
+            h('span', { className: 'orca-worktree-label' }, worktree.label),
           )
         : null
       const pinnedHint = showPinnedHint
@@ -1539,6 +1551,7 @@ window.__ModuleLoader__.load({
         ? h(Icon, { name: 'pinFilled', size: 10, className: 'orca-session-pin' })
         : null
       const titleBadge = h('span', { className: 'orca-session-title', title }, title)
+      const hasMeta = Boolean(worktreeBadge || projectBadge || pinnedHint || archivedBadge)
 
       const main = h(
         'div',
@@ -1546,6 +1559,7 @@ window.__ModuleLoader__.load({
           className: cx('orca-session-main', current && 'is-current'),
           role: 'button',
           tabIndex: 0,
+          'aria-current': current ? 'page' : undefined,
           draggable: drag ? true : undefined,
           style: { marginLeft: variant === 'tree' ? depth * 13 : 0 },
           onClick: () => actions.open(session, variant),
@@ -1563,7 +1577,7 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { className: 'orca-session-line' },
-          h(SessionStatusIndicator, { running, completed, pending, archived }),
+          h(SessionStatusIndicator, { running, completed, pending, archived, t }),
           pinGlyph,
           titleBadge,
         ),
@@ -1605,6 +1619,7 @@ window.__ModuleLoader__.load({
           className: cx(
             'orca-session',
             `orca-session--${variant}`,
+            hasMeta && 'has-meta',
             pinned && pinHint && 'is-pinned-ref',
             archived && 'is-archived',
             current && 'is-current',
@@ -1644,6 +1659,9 @@ window.__ModuleLoader__.load({
       )
       const hiddenSessions = sessions.length - visibleSessions.length
       const title = project.title || t('project.ungrouped')
+      const containsCurrent = Boolean(
+        currentId && project.sessions.some((session) => session.id === currentId),
+      )
       const canManage = project.workspaceId !== null && project.workspaceId !== undefined
       const worktrees = Array.isArray(project.worktrees) ? project.worktrees : []
       const worktreeBadge =
@@ -1668,6 +1686,7 @@ window.__ModuleLoader__.load({
           className: 'orca-project-head',
           role: 'button',
           tabIndex: 0,
+          'aria-expanded': expanded,
           draggable: allowDrag ? true : undefined,
           style: { paddingLeft: 5 + depth * 13 },
           onClick: onToggle,
@@ -1714,7 +1733,10 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        { className: 'orca-project', 'data-project-key': project.key },
+        {
+          className: cx('orca-project', containsCurrent && 'has-current'),
+          'data-project-key': project.key,
+        },
         h('div', { className: 'orca-project-row' }, head, hover),
         expanded
           ? h(
@@ -1785,6 +1807,7 @@ window.__ModuleLoader__.load({
             className: 'orca-group-head orca-pinned-head',
             role: 'button',
             tabIndex: 0,
+            'aria-expanded': !collapsed,
             onClick: onToggle,
             onKeyDown: (event) => {
               if (event.key === 'Enter' || event.key === ' ') {
@@ -1867,6 +1890,7 @@ window.__ModuleLoader__.load({
               className: 'orca-group-head',
               role: 'button',
               tabIndex: 0,
+              'aria-expanded': !collapsed,
               title: t('loose.hint'),
               onClick: onToggle,
               onKeyDown: (event) => {
@@ -1899,6 +1923,7 @@ window.__ModuleLoader__.load({
                       className: 'orca-loose-workspace-head',
                       role: 'button',
                       tabIndex: 0,
+                      'aria-expanded': !groupCollapsed,
                       title: group.path || group.title,
                       onClick: () => actions.toggleGroup(`lg:${group.key}`, false),
                       onKeyDown: (event) => {
@@ -1969,6 +1994,7 @@ window.__ModuleLoader__.load({
           className: 'orca-group-head',
           role: 'button',
           tabIndex: 0,
+          'aria-expanded': !collapsed,
           onClick: () => toggleGroup(),
           onKeyDown: (event) => {
             if (event.key === 'Enter' || event.key === ' ') {
@@ -2464,7 +2490,7 @@ window.__ModuleLoader__.load({
         searchOpen
           ? h(
               'div',
-              { className: 'orca-search-field' },
+              { className: 'orca-search-field', role: 'search' },
               h(Icon, { name: 'search', size: 13, className: 'orca-search-icon' }),
               h('input', {
                 ref: inputRef,
@@ -3730,6 +3756,9 @@ window.__ModuleLoader__.load({
         box-sizing: border-box;
       }
       .orca-root {
+        --orca-hover: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+        --orca-row: color-mix(in srgb, var(--dsw-alias-label-primary) 3%, transparent);
+        --orca-row-border: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
         display: flex;
         flex-direction: column;
         min-width: 0;
@@ -3738,24 +3767,25 @@ window.__ModuleLoader__.load({
         color: var(--dsw-alias-label-primary);
         font-size: 14px;
         line-height: 1.4;
+        -webkit-font-smoothing: antialiased;
       }
       .orca-header {
         flex: none;
-        padding: 2px 2px 0;
+        padding: 2px 3px 4px;
       }
       .orca-title-row {
         display: flex;
         align-items: center;
         gap: 6px;
-        height: 32px;
+        height: 30px;
         min-width: 0;
       }
       .orca-title {
-        margin-left: 5px;
+        margin-left: 6px;
         color: var(--dsw-alias-label-secondary);
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 600;
-        letter-spacing: 0.04em;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
         white-space: nowrap;
       }
@@ -3778,10 +3808,14 @@ window.__ModuleLoader__.load({
         color: var(--dsw-alias-label-secondary);
         cursor: pointer;
         flex: none;
+        transition: background-color 120ms ease, color 120ms ease, transform 120ms ease;
       }
       .orca-icon-button:hover {
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+        background: var(--orca-hover);
         color: var(--dsw-alias-label-primary);
+      }
+      .orca-icon-button:active {
+        transform: scale(0.92);
       }
       .orca-icon-button.is-active {
         color: var(--dsw-alias-brand-primary);
@@ -3797,12 +3831,14 @@ window.__ModuleLoader__.load({
       .orca-icon-button:focus-visible,
       .orca-project-head:focus-visible,
       .orca-group-head:focus-visible,
+      .orca-loose-workspace-head:focus-visible,
       .orca-session-main:focus-visible,
       .orca-text-button:focus-visible,
+      .orca-show-more:focus-visible,
       .orca-menu-item:focus-visible,
       .orca-button:focus-visible {
-        outline: 1px solid var(--dsw-alias-brand-primary);
-        outline-offset: -1px;
+        outline: 2px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 75%, transparent);
+        outline-offset: -2px;
       }
       .orca-search-field {
         display: flex;
@@ -3816,7 +3852,9 @@ window.__ModuleLoader__.load({
         background: color-mix(in srgb, var(--dsw-alias-bg-base) 45%, transparent);
       }
       .orca-search-field:focus-within {
-        border-color: var(--dsw-alias-brand-primary);
+        border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 65%, transparent);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--dsw-alias-brand-primary) 9%, transparent);
+        background: var(--dsw-alias-bg-base);
       }
       .orca-search-icon {
         flex: none;
@@ -3842,27 +3880,36 @@ window.__ModuleLoader__.load({
         min-height: 0;
         overflow-x: hidden;
         overflow-y: auto;
-        padding: 4px 6px 16px;
+        padding: 2px 6px 18px;
         scrollbar-width: thin;
         scrollbar-color: var(--dsw-alias-scrollbar-bg-l2, transparent) transparent;
       }
       .orca-view {
         display: flex;
         flex-direction: column;
-        gap: 1px;
+        gap: 2px;
+      }
+      .orca-view.orca-flat,
+      .orca-view.orca-search {
+        gap: 0;
+        padding: 4px 5px;
+        border: 1px solid var(--dsw-alias-border-l1);
+        border-radius: 10px;
+        background: var(--dsw-alias-bg-layer-1);
       }
       .orca-count {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 17px;
+        min-width: 18px;
         height: 17px;
         padding: 0 5px;
-        border-radius: 999px;
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
+        border-radius: 5px;
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
         color: var(--dsw-alias-label-secondary);
         font-size: 10px;
         font-weight: 500;
+        font-variant-numeric: tabular-nums;
         line-height: 1;
         flex: none;
       }
@@ -3896,39 +3943,47 @@ window.__ModuleLoader__.load({
         transform: rotate(90deg);
       }
       .orca-pinned-group {
-        margin: 2px 0 10px;
-        padding: 4px;
-        border: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 24%, var(--dsw-alias-border-l1));
+        margin: 0 0 11px;
+        overflow: hidden;
+        border: 1px solid var(--dsw-alias-border-l1);
         border-radius: 11px;
-        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 6%, transparent);
+        background: var(--dsw-alias-bg-layer-1);
+        box-shadow: 0 2px 7px color-mix(in srgb, var(--dsw-alias-label-primary) 3%, transparent);
       }
-      .orca-pinned-head {
-        height: 30px;
-        padding: 0 6px;
-        border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 14%, transparent);
-        border-radius: 7px 7px 0 0;
-        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 5%, transparent);
+      .orca-pinned-group .orca-pinned-head {
+        height: 33px;
+        padding: 0 9px;
+        border: 0;
+        border-radius: 0;
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 2%, transparent);
       }
-      .orca-pinned-group.is-collapsed .orca-pinned-head {
-        border-bottom-color: transparent;
+      .orca-pinned-group:not(.is-collapsed) .orca-pinned-head {
+        border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
       }
       .orca-pinned-icon {
-        color: var(--dsw-alias-brand-primary);
+        color: var(--dsw-alias-label-secondary);
       }
       .orca-pinned-body {
         display: flex;
         flex-direction: column;
-        gap: 1px;
-        padding: 4px 1px 1px;
+        gap: 0;
+        max-height: min(282px, 36vh);
+        padding: 0 5px 4px;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+        scrollbar-color: var(--dsw-alias-scrollbar-bg-l2, transparent) transparent;
       }
       .orca-group {
         border-radius: 8px;
       }
       .orca-group + .orca-group {
-        margin-top: 8px;
+        margin-top: 7px;
       }
       .orca-group--loose {
-        margin-top: 8px;
+        margin-top: 10px;
+        padding-top: 7px;
+        border-top: 1px solid var(--dsw-alias-border-l1);
       }
       .orca-loose-workspace {
         display: flex;
@@ -3942,17 +3997,18 @@ window.__ModuleLoader__.load({
         display: flex;
         align-items: center;
         gap: 5px;
-        height: 28px;
-        padding: 0 8px 0 12px;
+        min-height: 28px;
+        padding: 0 7px 0 9px;
         border-radius: 6px;
         color: var(--dsw-alias-label-secondary);
         font-size: 12px;
         font-weight: 500;
         cursor: pointer;
         user-select: none;
+        transition: background-color 120ms ease, color 120ms ease;
       }
       .orca-loose-workspace-head:hover {
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent);
+        background: var(--orca-hover);
         color: var(--dsw-alias-label-primary);
       }
       .orca-loose-workspace-icon {
@@ -3969,8 +4025,12 @@ window.__ModuleLoader__.load({
       .orca-loose-workspace-body {
         display: flex;
         flex-direction: column;
-        gap: 1px;
-        margin-left: 8px;
+        gap: 0;
+        margin: 2px 0 6px 8px;
+        padding: 0 5px 4px;
+        border: 1px solid var(--dsw-alias-border-l1);
+        border-radius: 8px;
+        background: var(--dsw-alias-bg-layer-1);
       }
       .orca-group-row {
         position: relative;
@@ -3979,21 +4039,24 @@ window.__ModuleLoader__.load({
         display: flex;
         align-items: center;
         gap: 6px;
-        height: 30px;
+        height: 31px;
         min-width: 0;
         padding: 0 8px;
-        border: 1px solid transparent;
+        border: 1px solid var(--dsw-alias-border-l1);
         border-radius: 7px;
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent);
+        background: var(--dsw-alias-bg-layer-1);
+        box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary) 2%, transparent);
         color: var(--dsw-alias-label-secondary);
         font-size: 12px;
-        font-weight: 600;
-        letter-spacing: 0.02em;
+        font-weight: 500;
+        letter-spacing: 0.01em;
         cursor: pointer;
         user-select: none;
+        transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
       }
       .orca-group-head:hover {
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+        border-color: var(--dsw-alias-border-l2);
+        background: color-mix(in srgb, var(--dsw-alias-bg-layer-1) 92%, var(--orca-hover));
         color: var(--dsw-alias-label-primary);
       }
       .orca-group-icon {
@@ -4013,7 +4076,8 @@ window.__ModuleLoader__.load({
         right: 4px;
         display: none;
         align-items: center;
-        background: var(--dsw-specific-sidebar-fill);
+        background: var(--dsw-alias-bg-layer-1);
+        box-shadow: 0 1px 5px color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent);
         border-radius: var(--dsw-radius-sm, 6px);
       }
       .orca-group-row:hover .orca-group-actions,
@@ -4023,31 +4087,32 @@ window.__ModuleLoader__.load({
       .orca-group-body {
         display: flex;
         flex-direction: column;
-        gap: 1px;
-        margin: 2px 0 0 10px;
-        padding: 2px 0 4px 8px;
-        border-left: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 10%, transparent);
+        gap: 0;
+        margin: 4px 0 0 8px;
+        padding: 0 0 3px 5px;
+        border-left: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
       }
       .orca-group--ungrouped {
-        margin-top: 10px;
+        margin-top: 7px;
       }
       .orca-group--ungrouped .orca-group-head {
-        height: 32px;
-        padding-top: 3px;
-        border-top: 1px solid var(--dsw-alias-border-l1);
-        border-radius: 0;
-        background: transparent;
+        height: 31px;
+        padding-top: 0;
       }
       .orca-group--ungrouped .orca-group-head:hover {
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent);
+        background: var(--dsw-alias-bg-layer-1);
       }
       .orca-project {
         display: flex;
         flex-direction: column;
-        gap: 1px;
+        gap: 0;
+        border: 1px solid var(--dsw-alias-border-l1);
+        border-radius: 8px;
+        background: var(--dsw-alias-bg-layer-1);
+        box-shadow: 0 1px 2px color-mix(in srgb, var(--dsw-alias-label-primary) 2%, transparent);
       }
       .orca-project + .orca-project {
-        margin-top: 1px;
+        margin-top: 4px;
       }
       .orca-project-row {
         position: relative;
@@ -4056,18 +4121,29 @@ window.__ModuleLoader__.load({
         display: flex;
         align-items: center;
         gap: 6px;
-        height: 32px;
-        padding: 0 56px 0 4px;
-        border-radius: var(--dsw-radius-sm, 6px);
+        height: 33px;
+        padding: 0 7px 0 5px;
+        border-radius: 7px 7px 0 0;
         color: var(--dsw-alias-label-primary);
         font-size: 14px;
         font-weight: 500;
         line-height: 20px;
         cursor: pointer;
         user-select: none;
+        transition: background-color 120ms ease, color 120ms ease;
+      }
+      .orca-project-head[aria-expanded='false'] {
+        border-radius: 7px;
       }
       .orca-project-head:hover {
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 7%, transparent);
+        background: var(--orca-hover);
+      }
+      .orca-project.has-current > .orca-project-row .orca-project-head {
+        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 5%, transparent);
+      }
+      .orca-project.has-current > .orca-project-row .orca-project-title {
+        color: var(--dsw-alias-brand-primary);
+        font-weight: 600;
       }
       .orca-project-folder {
         flex: none;
@@ -4087,7 +4163,8 @@ window.__ModuleLoader__.load({
         display: none;
         align-items: center;
         gap: 1px;
-        background: var(--dsw-specific-sidebar-fill);
+        background: var(--dsw-alias-bg-layer-1);
+        box-shadow: 0 1px 5px color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent);
         border-radius: var(--dsw-radius-sm, 6px);
       }
       .orca-project-row:hover .orca-project-actions,
@@ -4097,46 +4174,60 @@ window.__ModuleLoader__.load({
       .orca-project-body {
         display: flex;
         flex-direction: column;
-        gap: 1px;
-        padding: 1px 0 2px;
+        gap: 0;
+        padding: 0 5px 4px;
+        border-top: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
       }
       .orca-project-body.is-guided {
-        margin-left: 14px;
-        padding: 2px 0 4px 6px;
-        border-left: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+        margin-left: 0;
+        padding: 0 5px 4px;
+        border-left: 0;
       }
       .orca-session {
         position: relative;
         display: flex;
         align-items: stretch;
         min-width: 0;
-        min-height: 50px;
-        margin: 2px 0;
-        border: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
-        border-radius: 8px;
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 2.5%, transparent);
+        min-height: 33px;
+        margin: 0;
+        border: 0;
+        border-bottom: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent);
+        border-radius: 0;
+        background: transparent;
+        transition: background-color 120ms ease, box-shadow 120ms ease;
+      }
+      .orca-session.has-meta {
+        min-height: 43px;
+        background: transparent;
+      }
+      .orca-pinned-body > .orca-session:last-child,
+      .orca-project-body > .orca-session:last-child,
+      .orca-loose-workspace-body > .orca-session:last-child,
+      .orca-flat > .orca-session:last-child,
+      .orca-search > .orca-session:last-child {
+        border-bottom-color: transparent;
       }
       .orca-session:hover {
-        border-color: color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent);
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 4.5%, transparent);
+        background: var(--orca-hover);
       }
       .orca-session.is-current {
-        border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 35%, transparent);
-        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 11%, transparent);
+        border-bottom-color: transparent;
+        border-radius: 6px;
+        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 9%, transparent);
         box-shadow: inset 2px 0 0 var(--dsw-alias-brand-primary);
       }
       .orca-session-main {
         display: flex;
         flex-direction: column;
         justify-content: center;
-        gap: 3px;
+        gap: 1px;
         min-width: 0;
         width: 100%;
-        padding: 5px 8px;
-        border-radius: 7px;
+        padding: 3px 8px;
+        border-radius: 5px;
         color: var(--dsw-alias-label-primary);
         font-size: 14px;
-        line-height: 20px;
+        line-height: 18px;
         cursor: pointer;
         user-select: none;
       }
@@ -4145,15 +4236,17 @@ window.__ModuleLoader__.load({
         align-items: center;
         gap: 6px;
         min-width: 0;
-        padding-right: 52px;
       }
       .orca-session-subline {
         display: flex;
         align-items: center;
-        gap: 5px;
+        gap: 4px;
         min-width: 0;
         padding-left: 15px;
         overflow: hidden;
+      }
+      .orca-session-subline:empty {
+        display: none;
       }
       .orca-session-title {
         flex: 1;
@@ -4170,17 +4263,18 @@ window.__ModuleLoader__.load({
         display: inline-flex;
         align-items: center;
         gap: 3px;
-        flex: none;
-        max-width: 46%;
+        flex: 0 1 auto;
+        min-width: 0;
+        max-width: 52%;
         height: 16px;
         padding: 0 5px;
-        border: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 11%, transparent);
-        border-radius: 999px;
+        border: 0;
+        border-radius: 4px;
         overflow: hidden;
         color: var(--dsw-alias-label-secondary);
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 4%, transparent);
-        font-size: 10px;
-        line-height: 14px;
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent);
+        font-size: 10.5px;
+        line-height: 16px;
       }
       .orca-session-project-icon {
         flex: none;
@@ -4191,31 +4285,36 @@ window.__ModuleLoader__.load({
         text-overflow: ellipsis;
         white-space: nowrap;
         color: inherit;
-        font-size: 10px;
+        font-size: 10.5px;
       }
       .orca-worktree {
         display: inline-flex;
         align-items: center;
-        flex: none;
-        max-width: 92px;
+        flex: 0 1 auto;
+        min-width: 0;
+        max-width: 108px;
         height: 16px;
         padding: 0 5px;
-        border: 1px solid color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent);
-        border-radius: 999px;
+        border: 0;
+        border-radius: 4px;
+        overflow: hidden;
+        white-space: nowrap;
+        color: var(--dsw-alias-label-secondary);
+        background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent);
+        font-size: 10.5px;
+        line-height: 16px;
+      }
+      .orca-worktree-label {
+        min-width: 0;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        color: var(--dsw-alias-label-secondary);
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 4%, transparent);
-        font-size: 10px;
-        line-height: 14px;
       }
       .orca-worktree.is-main {
         color: var(--dsw-alias-label-secondary);
       }
       .orca-worktree:not(.is-main) {
         color: var(--dsw-alias-brand-primary);
-        border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 26%, transparent);
         background: color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent);
       }
       .orca-session-hint {
@@ -4235,11 +4334,20 @@ window.__ModuleLoader__.load({
         color: var(--dsw-alias-state-warn-primary);
         border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 35%, transparent);
       }
-      .orca-session.is-pinned-ref {
+      .orca-session.is-pinned-ref:not(.is-current) {
+        background: transparent;
+      }
+      .orca-session.is-pinned-ref .orca-session-title,
+      .orca-session.is-pinned-ref .orca-session-subline,
+      .orca-session.is-archived .orca-session-title,
+      .orca-session.is-archived .orca-session-subline {
         opacity: 0.55;
       }
-      .orca-session.is-archived {
-        opacity: 0.45;
+      .orca-session.is-pinned-ref:hover .orca-session-title,
+      .orca-session.is-pinned-ref:focus-within .orca-session-title,
+      .orca-session.is-pinned-ref:hover .orca-session-subline,
+      .orca-session.is-pinned-ref:focus-within .orca-session-subline {
+        opacity: 0.8;
       }
       .orca-session-actions {
         position: absolute;
@@ -4248,7 +4356,8 @@ window.__ModuleLoader__.load({
         display: none;
         align-items: center;
         gap: 1px;
-        background: var(--dsw-specific-sidebar-fill);
+        background: var(--dsw-alias-bg-layer-1);
+        box-shadow: 0 1px 5px color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent);
         border-radius: var(--dsw-radius-sm, 6px);
       }
       .orca-project-actions .orca-icon-button,
@@ -4261,16 +4370,13 @@ window.__ModuleLoader__.load({
       .orca-session:focus-within .orca-session-actions {
         display: flex;
       }
-      .orca-session:hover .orca-session-hint,
-      .orca-session:focus-within .orca-session-hint {
-        visibility: hidden;
-      }
       .orca-status-dot {
-        width: 9px;
-        height: 9px;
+        width: 7px;
+        height: 7px;
+        margin: 2.5px;
         border-radius: 50%;
         background: var(--dsw-alias-state-idle-primary);
-        opacity: 0.5;
+        opacity: 0.42;
         flex: none;
       }
       .orca-status-dot.is-completed {
@@ -4586,13 +4692,15 @@ window.__ModuleLoader__.load({
         .orca-group-actions {
           display: flex;
         }
-        .orca-session-hint {
-          display: none;
-        }
       }
       @media (prefers-reduced-motion: reduce) {
         .orca-chevron,
-        .orca-spinner {
+        .orca-spinner,
+        .orca-icon-button,
+        .orca-session,
+        .orca-project-head,
+        .orca-group-head,
+        .orca-loose-workspace-head {
           transition: none;
           animation: none;
         }

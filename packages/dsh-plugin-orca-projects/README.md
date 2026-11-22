@@ -33,11 +33,17 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   session stays in place, grayed, with a **置顶** badge. Opening a pinned session
   does not expand its project; use the pinned row's `...` menu → **在项目中显示**
   to expand the project and scroll to the original row. Unpin it and it is an
-  ordinary project session again.
-- **Compact session cards.** Every session is a two-line card: a title line,
+  ordinary project session again. A long shelf scrolls inside a bounded area so
+  it cannot push every project below the fold.
+- **Compact session cards.** Cross-project sessions use two lines: a title,
   then worktree and project chips. Project, pinned, flat, and search rows share
-  the same card geometry, with the project chip only where the project is not
-  already the surrounding header.
+  the same geometry, with the project chip only where the project is not already
+  the surrounding header. Rows without metadata collapse to one line. Pinned,
+  project, loose-workspace, flat, and search sessions share one raised container
+  per section with internal hairline separators, rather than one bordered card
+  per session; group and project headers are lightweight folding cards. Reduced
+  indentation and full-width titles keep the sidebar readable at narrow widths;
+  hover actions overlay the row instead of permanently reserving title space.
 - **Worktree labels.** Session chips use the Host-resolved checkout identity,
   including worktrees in arbitrary directories. Ordinary subdirectories inherit
   their checkout's label. Without a resolved identity, the client recognizes
@@ -53,7 +59,10 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   View options → **仅活跃会话** hides every non-active session and project; the
   resulting empty state offers **查看全部会话** to switch the filter off. Waiting
   takes precedence over running. Filtering never changes a visible project's
-  worktree membership, main workspace, or action targets.
+  worktree membership, main workspace, or action targets. Status glyphs expose
+  localized labels and tooltips; disclosure controls expose `aria-expanded`, and
+  the current session exposes `aria-current` for keyboard and assistive-technology
+  navigation.
 - **Custom groups.** Use a project's `...` menu → **移动到分组** to create a group
   or move the project into one. You can also drag a project onto a group. Group
   headers can be renamed, deleted, and used to add projects; deleting a group
@@ -186,7 +195,15 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
   real slot-entry shape, and stale worktree records with missing or foreign
   checkout backlinks. These use server-rendered markup and fake service/shortcut
   sources; the final build was also reinstalled in a scratch Web profile to
-  check the results in a real page.
+  check the results in a real page. Expansion, current-session, and live-status
+  accessibility semantics have server-rendered regressions.
+- The visual refinement was rendered at a 264px sidebar width in light and dark
+  themes with 22 projects and seven pinned sessions. The shelf remained bounded
+  and scrollable, ordinary loose-session rows showed no redundant project chip,
+  project/group/session nesting stayed within the narrow column, and no slot
+  errors appeared. Hover actions, keyboard disclosure with Enter, search and
+  Escape, current-project/current-session markers, and loose workspace groups
+  were exercised in the page.
 - Earlier manual checks in a scratch Web profile at DSH 0.2.2-rc.1: Orca-like mode in the
   view-options menu; project expansion; pin → shelf and gray project row; unpin
   → restored row; create/rename/delete group; move project by menu and by drag;
