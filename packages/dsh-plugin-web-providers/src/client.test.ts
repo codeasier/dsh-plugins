@@ -35,8 +35,72 @@ const initial = (): Config => ({
   fetch: { active: 'plain', providers: [{ id: 'plain', vendor: 'http' }] },
 })
 
+type Routes = { searchProvider?: string; fetchProvider?: string }
+interface WebSnapshot {
+  status: 'ready' | 'loading' | 'unavailable'
+  value: Routes
+  revision: number | undefined
+  writable: boolean
+}
+
+/** Model just the accepted web row and its revision fence, separately from the plugin form. */
+function routeForm(value: Routes, overrides: Partial<Omit<WebSnapshot, 'value'>> = {}) {
+  let view: WebSnapshot = { status: 'ready', value, revision: 10, writable: true, ...overrides }
+  let host = view
+  let reply: 'reject' | 'false' | 'superseded' | undefined
+  let hold: Promise<void> | undefined
+  const writes: Array<{ ops: Op[]; revision: number | undefined }> = []
+  return {
+    getSnapshot: () => view,
+    subscribe: () => () => {},
+    mutate: async (ops: Op[], revision?: number) => {
+      writes.push({ ops: structuredClone(ops), revision })
+      const sleeping = hold
+      hold = undefined
+      if (sleeping) await sleeping
+      const answer = reply
+      reply = undefined
+      if (answer === 'reject') throw new Error('response lost')
+      if (answer === 'false' || host.revision !== revision) {
+        view = host
+        return false
+      }
+      const next = { ...host.value }
+      for (const op of ops) {
+        if (op.path.length !== 1 || op.op !== 'set') throw new Error('unsupported web route write')
+        next[op.path[0] as keyof Routes] = op.value as string
+      }
+      host = { ...host, value: next, revision: (host.revision ?? 0) + 1 }
+      if (answer !== 'superseded') view = host
+      return true
+    },
+    writes,
+    host: () => host,
+    reply: (answer: typeof reply) => {
+      reply = answer
+    },
+    defer: () => {
+      let release!: () => void
+      hold = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      return release
+    },
+    external: (next: Routes, mirrored = true) => {
+      host = { ...host, value: next, revision: (host.revision ?? 0) + 1 }
+      if (mirrored) view = host
+    },
+  }
+}
+
 /** Execute the actual client bundle with deterministic hooks, not a rendered browser. */
-function mount(value = initial(), { queued = false } = {}) {
+function mount(
+  value = initial(),
+  {
+    queued = false,
+    webForm,
+  }: { queued?: boolean; webForm?: ReturnType<typeof routeForm> | undefined } = {},
+) {
   let snapshot = { status: 'ready', value: structuredClone(value), revision: 1 }
   let host = snapshot
   let generation = 0
@@ -201,7 +265,7 @@ function mount(value = initial(), { queued = false } = {}) {
       pending = false
       effects = []
       const seen = new Set<string>()
-      tree = visit({ type: root, props: { form }, children: [] }, 'root', seen)
+      tree = visit({ type: root, props: { form, webForm }, children: [] }, 'root', seen)
       for (const path of instances.keys()) if (!seen.has(path)) instances.delete(path)
       for (const effect of effects) effect()
     } while (pending)
@@ -226,6 +290,8 @@ function mount(value = initial(), { queued = false } = {}) {
     if (!found) throw new Error(`missing button ${label} in ${kind}`)
     return found
   }
+  const routeButton = (kind: 'Search' | 'Fetch') =>
+    all().find((node) => node.type === 'button' && text(node) === `Use this plugin for ${kind} now`)
   const field = (label: string, kind = 'search') => {
     const container = all(section(kind)).find(
       (node) => node.type === 'label' && text(node.children[0]) === label,
@@ -287,12 +353,18 @@ function mount(value = initial(), { queued = false } = {}) {
     reject: (next: typeof failure) => {
       failure = next
     },
-    refresh: (next: Config, revision = snapshot.revision + 1) => {
+    refresh: (next: Config, revision = snapshot.revision + 1, repaint = true) => {
       snapshot = { ...snapshot, value: structuredClone(next), revision }
       host = snapshot
-      render()
+      if (repaint) render()
     },
     button,
+    routeButton,
+    clickRoute: (kind: 'Search' | 'Fetch') => {
+      const node = routeButton(kind)
+      if (!node) throw new Error(`missing route button for ${kind}`)
+      return invoke(node, 'onClick')
+    },
     field,
     select,
     json,
@@ -1058,4 +1130,215 @@ it('keeps newer local edits without adopting remote credential changes during sa
     label: 'First edit',
     apiKey: 'rotated-key',
   })
+})
+
+describe('profile web routing', () => {
+  it.each([
+    ['Search', 'searchProvider', { searchProvider: 'custom', fetchProvider: 'http' }],
+    ['Fetch', 'fetchProvider', { searchProvider: 'deepseek-official', fetchProvider: 'custom' }],
+  ] as const)(
+    'switches only %s and displays alternate IDs without claiming failure',
+    async (kind, field, before) => {
+      const webForm = routeForm(before)
+      const ui = mount(initial(), { webForm })
+      expect(ui.text()).toContain(`Search route: ${before.searchProvider}`)
+      expect(ui.text()).toContain(`Fetch route: ${before.fetchProvider}`)
+      expect(ui.text()).not.toContain('fail before')
+      expect(ui.text()).toContain('does not save provider edits')
+      await ui.clickRoute(kind)
+      expect(webForm.writes).toEqual([
+        { ops: [{ op: 'set', path: [field], value: 'web-providers' }], revision: 10 },
+      ])
+      expect(webForm.getSnapshot().value).toEqual({ ...before, [field]: 'web-providers' })
+      expect(ui.routeButton(kind)).toBeUndefined()
+      expect(ui.writes).toEqual([])
+    },
+  )
+
+  it('lets both stale fields be corrected independently at their actual revisions', async () => {
+    const webForm = routeForm({ searchProvider: 'custom', fetchProvider: 'custom' })
+    const ui = mount(initial(), { webForm })
+    await ui.clickRoute('Search')
+    expect(webForm.getSnapshot().value).toEqual({
+      searchProvider: 'web-providers',
+      fetchProvider: 'custom',
+    })
+    await ui.clickRoute('Fetch')
+    expect(webForm.writes.map((write) => [write.ops[0]?.path[0], write.revision])).toEqual([
+      ['searchProvider', 10],
+      ['fetchProvider', 11],
+    ])
+    expect(webForm.getSnapshot().value).toEqual({
+      searchProvider: 'web-providers',
+      fetchProvider: 'web-providers',
+    })
+  })
+
+  it('shows an omitted field as Automatic without conflating it with an explicit empty ID', () => {
+    const ui = mount(initial(), { webForm: routeForm({ fetchProvider: '' }) })
+    expect(ui.text()).toContain('Search route: Automatic / not specified')
+    expect(ui.text()).toContain('Fetch route: ""')
+  })
+
+  it('does not route to an empty, draft-only, stale, or ambiguous saved selection', async () => {
+    const config = initial()
+    config.fetch = { providers: [] }
+    const webForm = routeForm({ searchProvider: 'custom', fetchProvider: 'http' })
+    const ui = mount(config, { webForm })
+    expect(ui.routeButton('Fetch')?.props.disabled).toBe(true)
+    await ui.click('Add provider', 'fetch')
+    expect(ui.routeButton('Fetch')?.props.disabled).toBe(true)
+    expect(ui.text()).toContain('Save or discard the edits for this tool')
+    // Guard the handler as well as the disabled button.
+    await ui.clickRoute('Fetch')
+    expect(webForm.writes).toEqual([])
+    expect(ui.routeButton('Search')?.props.disabled).toBe(false)
+
+    for (const next of [
+      { active: 'removed', providers: [{ id: 'a', vendor: 'url' }] },
+      {
+        providers: [
+          { id: 'a', vendor: 'url' },
+          { id: 'b', vendor: 'jina' },
+        ],
+      },
+    ]) {
+      const clean = mount({ ...config, search: next }, { webForm })
+      expect(clean.routeButton('Search')?.props.disabled).toBe(true)
+    }
+  })
+
+  it('requires saving or discarding a relevant draft even when the saved list was usable', async () => {
+    const webForm = routeForm({ searchProvider: 'custom', fetchProvider: 'http' })
+    const ui = mount(initial(), { webForm })
+    await ui.click('Edit')
+    await ui.change(ui.field('Display namelabel'), 'Only in draft')
+    expect(ui.routeButton('Search')?.props.disabled).toBe(true)
+    expect(ui.routeButton('Fetch')?.props.disabled).toBe(false)
+    await ui.clickRoute('Search')
+    expect(webForm.writes).toEqual([])
+    await ui.click('Cancel')
+    expect(ui.routeButton('Search')?.props.disabled).toBe(false)
+    await ui.clickRoute('Search')
+    expect(ui.writes).toEqual([])
+  })
+
+  it('shares a synchronous lock across both actions and ignores repeated attempts in flight', async () => {
+    const webForm = routeForm({})
+    const ui = mount(initial(), { webForm })
+    const search = ui.routeButton('Search')
+    const fetch = ui.routeButton('Fetch')
+    if (!search || !fetch) throw new Error('missing route button')
+    const release = webForm.defer()
+    const write = ui.invoke(search, 'onClick')
+    expect(ui.routeButton('Search')?.props.disabled).toBe(true)
+    expect(ui.routeButton('Fetch')?.props.disabled).toBe(true)
+    await ui.invoke(search, 'onClick')
+    await ui.invoke(fetch, 'onClick')
+    expect(webForm.writes).toHaveLength(1)
+    release()
+    await write
+    expect(ui.routeButton('Fetch')?.props.disabled).toBe(false)
+  })
+
+  it('does not apply an already stale rendered choice or rebase during an external edit', async () => {
+    const webForm = routeForm({ searchProvider: 'custom', fetchProvider: 'http' })
+    const ui = mount(initial(), { webForm })
+    webForm.external({ searchProvider: 'custom', fetchProvider: 'other-fetch' })
+    await ui.clickRoute('Search')
+    expect(webForm.writes).toEqual([])
+    expect(ui.text()).toContain('Settings changed.')
+
+    const release = webForm.defer()
+    const write = ui.clickRoute('Search')
+    webForm.external({ searchProvider: 'other-search', fetchProvider: 'third-fetch' }, false)
+    release()
+    await write
+    expect(webForm.writes[0]?.revision).toBe(11)
+    expect(ui.text()).toContain('The host did not accept the switch.')
+    expect(webForm.getSnapshot().value).toEqual({
+      searchProvider: 'other-search',
+      fetchProvider: 'third-fetch',
+    })
+    await ui.clickRoute('Search')
+    expect(webForm.writes[1]?.revision).toBe(12)
+    expect(webForm.getSnapshot().value.fetchProvider).toBe('third-fetch')
+  })
+
+  it('does not switch from a rendered provider that is no longer in the saved section', async () => {
+    const webForm = routeForm({ searchProvider: 'custom', fetchProvider: 'http' })
+    const ui = mount(initial(), { webForm })
+    const next = initial()
+    next.search = { providers: [] }
+    ui.refresh(next, 2, false)
+    // The real handler rechecks the accepted plugin settings before dispatching.
+    await ui.clickRoute('Search')
+    expect(webForm.writes).toEqual([])
+    expect(ui.text()).toContain('Settings changed.')
+    expect(ui.routeButton('Search')?.props.disabled).toBe(true)
+  })
+
+  it('enables a newly configured singleton only after the plugin save', async () => {
+    const setup = initial()
+    setup.fetch = { providers: [] }
+    const webForm = routeForm({ searchProvider: 'custom', fetchProvider: 'http' })
+    const ui = mount(setup, { webForm })
+    await ui.click('Add provider', 'fetch')
+    expect(ui.routeButton('Fetch')?.props.disabled).toBe(true)
+    await ui.click('Save', 'fetch')
+    expect(ui.routeButton('Fetch')?.props.disabled).toBe(false)
+    await ui.clickRoute('Fetch')
+    expect(webForm.getSnapshot().value).toEqual({
+      searchProvider: 'custom',
+      fetchProvider: 'web-providers',
+    })
+    expect(ui.writes).toHaveLength(1)
+  })
+
+  it('unlocks after a refusal, but does not blindly retry an uncertain transport result', async () => {
+    const webForm = routeForm({ searchProvider: 'custom', fetchProvider: 'http' })
+    const ui = mount(initial(), { webForm })
+    webForm.reply('false')
+    await ui.clickRoute('Search')
+    expect(ui.routeButton('Search')?.props.disabled).toBe(false)
+    const original = ui.routeButton('Search')
+    if (!original) throw new Error('missing Search action')
+    webForm.reply('reject')
+    await ui.clickRoute('Search')
+    expect(ui.text()).toContain('Could not confirm the switch.')
+    expect(ui.routeButton('Search')?.props.disabled).toBe(true)
+    expect(ui.routeButton('Fetch')?.props.disabled).toBe(true)
+    await ui.invoke(original, 'onClick')
+    expect(webForm.writes).toHaveLength(2)
+    webForm.external({ searchProvider: 'custom', fetchProvider: 'http' })
+    expect(ui.routeButton('Search')?.props.disabled).toBe(true)
+    await ui.click('Edit') // Refresh the synthetic view after the authoritative update.
+    expect(ui.routeButton('Search')?.props.disabled).toBe(false)
+  })
+
+  it('takes route labels from the mirror even if a write is accepted without publishing its view', async () => {
+    const webForm = routeForm({ searchProvider: 'custom', fetchProvider: 'http' })
+    const ui = mount(initial(), { webForm })
+    webForm.reply('superseded')
+    await ui.clickRoute('Search')
+    expect(ui.text()).toContain('The host accepted the routing change.')
+    expect(ui.text()).toContain('Search route: custom')
+    expect(webForm.host().value.searchProvider).toBe('web-providers')
+  })
+
+  it.each([
+    [undefined, 'This host does not expose the web row'],
+    [routeForm({}, { status: 'unavailable' }), 'This host does not expose the web row'],
+    [routeForm({}, { status: 'loading' }), 'Loading profile web routing'],
+    [routeForm({}, { writable: false }), 'The host settings are read-only'],
+    [routeForm({}, { revision: undefined }), 'No current routing revision'],
+  ] as const)(
+    'does not offer a write without a ready, writable revision (%s)',
+    (webForm, message) => {
+      const ui = mount(initial(), { webForm })
+      expect(ui.text()).toContain(message)
+      expect(ui.routeButton('Search')).toBeUndefined()
+      expect(ui.routeButton('Fetch')).toBeUndefined()
+    },
+  )
 })

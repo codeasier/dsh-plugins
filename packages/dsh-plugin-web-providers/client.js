@@ -15,15 +15,16 @@ window.__ModuleLoader__.load({
       en: {
         'page.title': 'Web search / fetch',
         'page.lead':
-          'Choose the providers behind web_search and web_fetch. A save applies on the next call.',
+          'Configure providers for this plugin. Search and fetch routing is set separately.',
         'page.loading': 'Loading…',
         'page.unavailable':
           'This host does not serve the web-providers settings; check that the plugin is mounted in this profile.',
         'page.footnote': "Field meanings and the credential order are in the plugin's README.md.",
         'kind.search.title': 'Search',
-        'kind.search.hint': 'web_search uses the provider selected here.',
+        'kind.search.hint':
+          'When routed to this plugin, web_search uses the provider selected here.',
         'kind.fetch.title': 'Fetch',
-        'kind.fetch.hint': 'web_fetch uses the provider selected here.',
+        'kind.fetch.hint': 'When routed to this plugin, web_fetch uses the provider selected here.',
         'a11y.activeFor': 'Provider in use for {kind}',
         'action.edit': 'Edit',
         'action.delete': 'Delete',
@@ -78,6 +79,27 @@ window.__ModuleLoader__.load({
         'status.invalidActive':
           'The saved provider no longer exists. Choose a provider or clear the selection.',
         'status.failed': 'The write failed; your draft is kept. Please retry.',
+        'select.title': 'Profile web routing',
+        'select.body':
+          'These are the configured routes, not tool health checks. Switching here applies immediately to one route and does not save provider edits below.',
+        'select.automatic': 'Automatic / not specified',
+        'select.route': '{kind} route: ',
+        'select.apply': 'Use this plugin for {kind} now',
+        'select.writing': 'Switching…',
+        'select.accepted': 'The host accepted the routing change.',
+        'select.stale':
+          'Settings changed. Check the current route and saved provider before trying again.',
+        'select.rejected':
+          'The host did not accept the switch. Check the current route before retrying.',
+        'select.unconfirmed':
+          'Could not confirm the switch. Reload and check the current route before retrying.',
+        'select.loading': 'Loading profile web routing…',
+        'select.unreadable':
+          'This host does not expose the web row. Check routing in the host settings.',
+        'select.readOnly': 'The host settings are read-only.',
+        'select.noRevision': 'No current routing revision. Reload before switching.',
+        'select.dirty': 'Save or discard the edits for this tool before switching.',
+        'select.needProvider': 'Save a provider and select it below before switching this route.',
         'status.jsonInvalid': 'Fix or discard invalid Other fields JSON before saving.',
         'error.jsonObject': 'must be a JSON object',
         'vendor.url': 'Custom URL',
@@ -110,14 +132,14 @@ window.__ModuleLoader__.load({
       },
       zh: {
         'page.title': 'Web 搜索/抓取',
-        'page.lead': '为 web_search 与 web_fetch 选择供应商；保存后下一次调用生效。',
+        'page.lead': '在这里配置本插件的供应商。搜索和抓取路由另行设置。',
         'page.loading': '读取配置中…',
         'page.unavailable': '宿主当前没有提供 web-providers 配置项，请确认插件已挂载到此 profile。',
         'page.footnote': '各供应商的字段含义与凭据解析顺序见插件的 README.md。',
         'kind.search.title': '搜索',
-        'kind.search.hint': 'web_search 使用这里选中的供应商。',
+        'kind.search.hint': '当 web_search 走本插件时，使用这里选中的供应商。',
         'kind.fetch.title': '抓取',
-        'kind.fetch.hint': 'web_fetch 使用这里选中的供应商。',
+        'kind.fetch.hint': '当 web_fetch 走本插件时，使用这里选中的供应商。',
         'a11y.activeFor': '当前用于 {kind} 的供应商',
         'action.edit': '编辑',
         'action.delete': '删除',
@@ -169,6 +191,23 @@ window.__ModuleLoader__.load({
         'status.switchRejected': '切换被拒绝，请刷新后重试。',
         'status.invalidActive': '已选供应商不存在。请选择其他供应商，或清除当前选择。',
         'status.failed': '写入失败，草稿已保留，请重试。',
+        'select.title': '配置档工具路由',
+        'select.body':
+          '此处显示已配置的路由，不代表工具运行正常。切换会立即应用到单个路由，不会保存下方的供应商编辑。',
+        'select.automatic': '自动／未指定',
+        'select.route': '{kind}路由：',
+        'select.apply': '立即对{kind}使用本插件',
+        'select.writing': '正在切换…',
+        'select.accepted': '宿主已接受路由变更。',
+        'select.stale': '设置已变更。请核对当前路由和已保存的供应商后重试。',
+        'select.rejected': '宿主未接受切换。请核对当前路由后重试。',
+        'select.unconfirmed': '未能确认切换结果。请刷新并核对当前路由后重试。',
+        'select.loading': '正在加载配置档的工具路由…',
+        'select.unreadable': '宿主没有开放 web 行。请在宿主设置中核对路由。',
+        'select.readOnly': '宿主设置为只读。',
+        'select.noRevision': '无法取得当前路由的版本。请刷新后再切换。',
+        'select.dirty': '请先保存或放弃此工具的编辑，再切换路由。',
+        'select.needProvider': '请先在下方保存并选定供应商，再切换此路由。',
         'status.jsonInvalid': '请先修正或撤销其他字段中的无效 JSON，再保存。',
         'error.jsonObject': '必须是一个 JSON 对象',
         'vendor.url': '自定义 URL',
@@ -465,6 +504,33 @@ window.__ModuleLoader__.load({
       },
       fieldHint: { fontSize: 11, lineHeight: '16px', color: T.text3 },
       fieldWarn: { fontSize: 11, lineHeight: '16px', color: T.danger },
+      notice: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        padding: '12px 14px',
+        borderRadius: 16,
+        border: `1px solid ${T.line}`,
+        background: T.layer2,
+        color: 'var(--dsw-alias-label-primary, #0f1115)',
+      },
+      noticeTitle: { margin: 0, fontSize: 13, lineHeight: '20px', fontWeight: 500 },
+      noticeBody: {
+        margin: 0,
+        fontSize: 12,
+        lineHeight: '18px',
+        color: 'var(--dsw-alias-label-secondary, #61666b)',
+      },
+      noticeRow: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+      code: {
+        fontFamily: T.mono,
+        fontSize: 11,
+        lineHeight: '16px',
+        padding: '1px 4px',
+        borderRadius: 4,
+        background: 'var(--dsw-alias-bg-layer-1, #fff)',
+        border: '1px solid var(--dsw-alias-border-l3, rgba(0,0,0,.12))',
+      },
       keyRow: { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 },
       input: {
         boxSizing: 'border-box',
@@ -1222,8 +1288,154 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
     const effectiveActive = (value) =>
       value.active || (value.providers.length === 1 ? (value.providers[0].id ?? '') : '')
 
+    // Match the runtime's explicit active / sole saved entry rule. This
+    // checks local configuration, not endpoint, credential or tool health.
+    const hasSavedRouteProvider = (kind, value) => {
+      const section = normalize(value)
+      const id = effectiveActive(section)
+      const provider = section.providers.find((entry) => entry.id === id)
+      return Boolean(id && provider && kind.vendors.includes(provider.vendor || 'url'))
+    }
+
+    const routingMessage = (message) =>
+      h(
+        'div',
+        { style: S.notice },
+        h('p', { style: S.noticeTitle }, t('select.title')),
+        h('p', { style: S.noticeBody, role: 'status' }, t(message)),
+      )
+
+    /** The accepted web row is separate from both stock settings and plugin drafts. */
+    function SelectionNotice({
+      webForm,
+      form,
+      pluginSnapshot,
+      draft,
+      pendingWrite,
+      busy,
+      setBusy,
+    }) {
+      const snapshot = React.useSyncExternalStore(
+        (listener) => webForm.subscribe(listener),
+        () => webForm.getSnapshot(),
+      )
+      const [result, setResult] = React.useState(null)
+      const uncertainRevision = React.useRef(undefined)
+
+      if (snapshot.status === 'loading') return routingMessage('select.loading')
+      if (snapshot.status !== 'ready') return routingMessage('select.unreadable')
+
+      const hasRevision = Number.isSafeInteger(snapshot.revision)
+      const writable = snapshot.writable === true
+      // If transport lost the reply, do not reissue blindly on the same view.
+      const unconfirmed = hasRevision && uncertainRevision.current === snapshot.revision
+
+      const switchRoute = async (kind, field, current) => {
+        if (
+          pendingWrite.current ||
+          uncertainRevision.current === snapshot.revision ||
+          isDirty(draft[kind.key])
+        )
+          return
+        const liveWeb = webForm.getSnapshot()
+        const livePlugin = form.getSnapshot()
+        if (
+          !writable ||
+          !hasRevision ||
+          liveWeb.status !== 'ready' ||
+          liveWeb.writable !== true ||
+          liveWeb.revision !== snapshot.revision ||
+          liveWeb.value?.[field] !== current ||
+          livePlugin.status !== 'ready' ||
+          livePlugin.revision !== pluginSnapshot.revision ||
+          !hasSavedRouteProvider(kind, livePlugin.value?.[kind.key])
+        ) {
+          setResult({ kind: kind.key, status: 'stale' })
+          return
+        }
+        pendingWrite.current = true
+        uncertainRevision.current = undefined
+        setBusy(true)
+        setResult({ kind: kind.key, status: 'writing' })
+        try {
+          // Changing just this field leaves the other route and all provider
+          // configuration intact. Fence at the rendered revision, not the
+          // queue's latest revision, to protect newer external changes.
+          const ok = await webForm.mutate(
+            [{ op: 'set', path: [field], value: NS }],
+            snapshot.revision,
+          )
+          setResult({ kind: kind.key, status: ok ? 'accepted' : 'rejected' })
+        } catch {
+          uncertainRevision.current = snapshot.revision
+          setResult({ kind: kind.key, status: 'unconfirmed' })
+        } finally {
+          pendingWrite.current = false
+          setBusy(false)
+        }
+      }
+
+      return h(
+        'div',
+        { style: S.notice },
+        h('p', { style: S.noticeTitle }, t('select.title')),
+        h('p', { style: S.noticeBody }, t('select.body')),
+        !writable
+          ? h('p', { style: S.noticeBody }, t('select.readOnly'))
+          : !hasRevision
+            ? h('p', { style: S.noticeBody }, t('select.noRevision'))
+            : null,
+        ...KINDS.map((kind) => {
+          const field = `${kind.key}Provider`
+          const label = t(kind.titleKey)
+          const current = snapshot.value?.[field]
+          const dirty = isDirty(draft[kind.key])
+          const configured = hasSavedRouteProvider(kind, pluginSnapshot.value?.[kind.key])
+          const message = result?.kind === kind.key ? result.status : null
+          return h(
+            'div',
+            { key: kind.key, style: S.noticeRow },
+            h(
+              'span',
+              { style: S.noticeBody },
+              t('select.route', { kind: label }),
+              current === undefined
+                ? t('select.automatic')
+                : h('code', { style: S.code }, current === '' ? '""' : current),
+            ),
+            current !== NS && writable && hasRevision
+              ? h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'dsh-wp-btn dsh-wp-primary dsh-wp-btn-sm',
+                    disabled: busy || unconfirmed || dirty || !configured,
+                    onClick: () => switchRoute(kind, field, current),
+                  },
+                  t('select.apply', { kind: label }),
+                )
+              : null,
+            current !== NS && writable && (dirty || !configured)
+              ? h(
+                  'span',
+                  { style: S.noticeBody },
+                  t(dirty ? 'select.dirty' : 'select.needProvider'),
+                )
+              : null,
+            message !== null
+              ? h(
+                  'span',
+                  { style: message === 'accepted' ? S.status : S.noticeBody, role: 'status' },
+                  t(`select.${message}`),
+                )
+              : null,
+          )
+        }),
+      )
+    }
+
     /** The settings section: both provider lists, read from the plugin namespace. */
-    function WebProvidersSection({ form }) {
+    function WebProvidersSection({ form, webForm }) {
       const snapshot = React.useSyncExternalStore(
         (listener) => form.subscribe(listener),
         () => form.getSnapshot(),
@@ -1594,6 +1806,17 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
           { style: { display: 'flex', flexDirection: 'column', gap: 12 } },
           h('div', { style: S.titleRow }, h('h2', { style: S.h2 }, t('page.title'))),
           h('p', { style: S.lead }, t('page.lead')),
+          webForm === undefined
+            ? routingMessage('select.unreadable')
+            : h(SelectionNotice, {
+                webForm,
+                form,
+                pluginSnapshot: snapshot,
+                draft,
+                pendingWrite,
+                busy,
+                setBusy,
+              }),
         ),
         ...KINDS.map(renderKind),
         h('p', { style: S.footerNote }, t('page.footnote')),
@@ -1636,6 +1859,21 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
       )
     }
 
+    /**
+     * The core `web` row belongs to another namespace. Read it when the host
+     * serves it; a host that does not is not an error here.
+     * @param ctx - the browser plugin context.
+     * @param namespace - settings namespace to look up.
+     * @returns the form controller, or undefined when unavailable.
+     */
+    function readForm(ctx, namespace) {
+      try {
+        return ctx.configForms.get(namespace)
+      } catch {
+        return undefined
+      }
+    }
+
     function apply(ctx) {
       ctx.locale.register(NS, { en: MESSAGES.en, zh: MESSAGES.zh })
       t = ctx.locale.bind(NS)
@@ -1650,7 +1888,7 @@ details[open] > .dsh-wp-summary svg { transform: rotate(180deg); }
                   id: 'web-providers',
                   order: 60,
                   label: () => t('page.title'),
-                  inject: () => ({ form: ctx.configForms.get(NS) }),
+                  inject: () => ({ form: ctx.configForms.get(NS), webForm: readForm(ctx, 'web') }),
                 },
                 WebProvidersSection,
               ),
