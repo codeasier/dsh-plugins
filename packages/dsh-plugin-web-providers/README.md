@@ -74,6 +74,13 @@ plugin re-reads the section every time, so no restart and no remount.
 
 ## Settings
 
+The page checks one thing before anything else: whether the profile's `web` row
+actually selects this plugin. If it selects something else, every entry below
+saves cleanly and still never runs, so the page says so at the top, shows the
+current value, and offers to write both fields in one click. A host that does not
+expose the `web` row gets a short explanation instead of a button.
+
+
 Left user menu → Settings → **Web search / fetch**. The page uses the shell's
 design tokens (`--dsw-alias-*`, `--dsw-radius-*`), so it matches the neighbouring
 sections in light and dark themes, and its text comes from the client locale
