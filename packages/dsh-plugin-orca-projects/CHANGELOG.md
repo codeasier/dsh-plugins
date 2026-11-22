@@ -1,5 +1,11 @@
 # @codeasier/dsh-plugin-orca-projects
 
+## 0.1.1
+
+### Patch Changes
+
+- cd71965: Refine the Orca-like sidebar with unified compact session containers, lightweight folding project/group cards, a bounded pinned shelf, clearer current-session navigation, and accessible disclosure and live-status semantics.
+
 ## 0.1.0
 
 - Keep migrated active sessions under their matched project; reveal pinned
