@@ -199,7 +199,7 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
   accessibility semantics have server-rendered regressions.
 - The visual refinement was rendered at a 264px sidebar width in light and dark
   themes with 22 projects and seven pinned sessions. The shelf expanded fully
-  without a nested scrollbar, project and session titles used 13px text, ordinary
+  without a nested scrollbar, project and session titles used 12px text, ordinary
   loose-session rows showed no redundant project chip,
   project/group/session nesting stayed within the narrow column, and no slot
   errors appeared. Hover actions, keyboard disclosure with Enter, search and

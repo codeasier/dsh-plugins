@@ -469,8 +469,8 @@ describe('client bundle', () => {
     const pinnedBody = source.match(/\.orca-pinned-body\s*\{([^}]*)\}/)?.[1] ?? ''
     expect(pinnedBody).not.toContain('max-height')
     expect(pinnedBody).not.toContain('overflow-y')
-    expect(source).toMatch(/\.orca-session-main\s*\{[^}]*font-size: 13px/)
-    expect(source).toMatch(/\.orca-project-head\s*\{[^}]*font-size: 13px/)
+    expect(source).toMatch(/\.orca-session-main\s*\{[^}]*font-size: 12px/)
+    expect(source).toMatch(/\.orca-project-head\s*\{[^}]*font-size: 12px/)
   })
 
   it('registers the browser with a negative priority and the plugin locale namespace', () => {

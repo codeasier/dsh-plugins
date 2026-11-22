@@ -4120,7 +4120,7 @@ window.__ModuleLoader__.load({
         padding: 0 7px 0 5px;
         border-radius: 7px 7px 0 0;
         color: var(--dsw-alias-label-primary);
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 500;
         line-height: 20px;
         cursor: pointer;
@@ -4221,7 +4221,7 @@ window.__ModuleLoader__.load({
         padding: 3px 8px;
         border-radius: 5px;
         color: var(--dsw-alias-label-primary);
-        font-size: 13px;
+        font-size: 12px;
         line-height: 18px;
         cursor: pointer;
         user-select: none;
