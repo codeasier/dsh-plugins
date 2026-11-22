@@ -1,6 +1,6 @@
 {
   "name": "@codeasier/dsh-plugin-web-providers",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Configure any number of web search and web fetch vendors once, then switch the active one from Settings.",
   "keywords": [
     "dsh-plugin",
