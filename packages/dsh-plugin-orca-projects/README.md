@@ -16,8 +16,19 @@ every other plugin in this repository.
 ## What it does
 
 Open the sidebar view options (the sliders button next to **项目**), choose
-**Orca-like**, then click a project row to reveal its sessions.
+**Orca-like**, then use its submenu to choose a layout. **Native Flow** is the
+default for existing and new installations.
 
+- **Three Orca layouts.** **Native Flow** keeps the project tree, custom groups,
+  and global pinned shelf in a transparent, native-style list. **Project
+  Switcher** focuses on one project at a time, follows the current session's
+  project, and provides Sessions, Pinned, and Worktrees tabs. **Attention
+  Queue** organizes every visible session into mutually exclusive Needs input,
+  Running, and Recent sections, with global All / Running / Needs input filters.
+  The layout choice and the last selected switcher project persist locally;
+  external current-session changes follow the project only while Project
+  Switcher is active. Attention Queue renders the first 40 recent sessions and
+  reveals additional batches on demand.
 - **Project-first grouping.** The sidebar lists projects (Git repositories),
   not directory levels. The main checkout and every linked worktree, including
   Orca's `~/orca/workspaces/<project>/<name>` layout and nested
@@ -28,22 +39,23 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   in one registers its directory. A project's `...` menu also renames the
   project label locally and deletes every workspace registration that belongs
   to it.
-- **Pinned shelf.** Pin a session from its hover pin button or its `...` menu.
-  It moves into the **已置顶** group at the very top. Under its project the same
-  session stays in place, grayed, with a **置顶** badge. Opening a pinned session
-  does not expand its project; use the pinned row's `...` menu → **在项目中显示**
-  to expand the project and scroll to the original row. Unpin it and it is an
-  ordinary project session again. The shelf expands to its full content height
-  and follows the outer sidebar scroller, without a nested scrollbar.
-- **Compact session cards.** Cross-project sessions use two lines: a title,
-  then worktree and project chips. Project, pinned, flat, and search rows share
-  the same geometry, with the project chip only where the project is not already
-  the surrounding header. Rows without metadata collapse to one line. Pinned,
-  project, loose-workspace, flat, and search sessions share one raised container
-  per section with internal hairline separators, rather than one bordered card
-  per session; group and project headers are lightweight folding cards. Reduced
-  indentation and full-width titles keep the sidebar readable at narrow widths;
-  hover actions overlay the row instead of permanently reserving title space.
+- **Pinned sessions.** Pin a session from its hover pin button or its `...` menu.
+  In Native Flow it moves into the **已置顶** group at the very top. Under its
+  project the same session stays in place with a **置顶** badge. Opening a pinned
+  session does not expand its project; use the pinned row's `...` menu →
+  **在项目中显示** to expand the project and scroll to the original row. The
+  shelf expands to its full content height and follows the outer sidebar
+  scroller, without a nested scrollbar. Project Switcher instead filters pinned
+  sessions inside the selected project, while Attention Queue keeps them in
+  their activity section with a pin marker. Unpinning restores an ordinary row.
+- **Compact native rows.** Project, group, and pinned containers are transparent
+  rather than raised cards. Current rows use DSH's neutral interactive hover
+  fill; only the current project's folder uses the business accent. Cross-project
+  sessions use two lines: a title with relative time, then plain worktree and
+  project metadata without pill backgrounds. Rows without metadata collapse to
+  one line, and hover actions replace trailing metadata instead of adding a
+  floating toolbar. Pinned references keep readable text; archived rows use the
+  theme's caption color rather than reducing the opacity of the whole row.
 - **Worktree labels.** Session chips use the Host-resolved checkout identity,
   including worktrees in arbitrary directories. Ordinary subdirectories inherit
   their checkout's label. Without a resolved identity, the client recognizes
@@ -64,10 +76,10 @@ Open the sidebar view options (the sliders button next to **项目**), choose
   the current session exposes `aria-current` for keyboard and assistive-technology
   navigation.
 - **Appearance.** View options → **字体** switches between the host system font,
-  monospace (`SF Mono` / `Menlo` / `Consolas`), and `JetBrains Mono`; **字号**
-  offers 10px, 11px, and 12px titles. Monospace at 10px is the default, and the
-  worktree/project chips, section headers, and row heights scale with it. Both
-  choices persist in `localStorage` beside the other view options, and only
+  the DSH code-font stack, and `JetBrains Mono`; **字号** offers 10px, 11px, and
+  12px titles. Monospace at 10px is the default, and the worktree/project labels,
+  section headers, and row heights scale with it. Both choices persist in
+  `localStorage` beside the selected Orca layout and other view options, and only
   affect this sidebar.
 - **Custom groups.** Use a project's `...` menu → **移动到分组** to create a group
   or move the project into one. You can also drag a project onto a group. Group
@@ -163,7 +175,7 @@ client-local:
 
 | Storage | Key | Contents |
 |---|---|---|
-| `localStorage` | `dsh.orca-projects.v1` | Grouping mode, sort/filter, custom groups, project assignments, project names, external session mappings, project and session order, collapse state |
+| `localStorage` | `dsh.orca-projects.v1` | Grouping mode, Orca layout, switcher project, sort/filter, custom groups, project assignments, project names, external session mappings, project and session order, collapse state |
 
 Pins and archived sessions are not stored here; they live in the workspace
 controller and apply to every sidebar surface.
@@ -190,6 +202,15 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
 
 ## Verification
 
+- The three Orca layouts were exercised in a scratch Web profile with real
+  workspaces and sessions in light and dark themes. The Orca submenu supported
+  pointer and Arrow Left/Right/Escape navigation with focus return. Project
+  Switcher preserved a manually selected project across reload and listed its
+  pinned sessions and worktrees. Attention Queue started with 40 of 580 recent
+  sessions, revealed 40 per batch with the remaining count, kept filters sticky,
+  and exposed empty Running / Needs input states. Session IDs were not duplicated
+  across activity sections, and repeat layout switches produced no Orca runtime
+  errors (the copied profile's unrelated account request returned 403).
 - `pnpm check` passes (lint, typecheck, tests, build, conventions, docs, packs).
 - The client bundle registers the loader id, locale namespace, and
   `sidebar.workspaces` occupant; behavior tests cover the grouping model,
@@ -209,7 +230,7 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
   accessibility semantics have server-rendered regressions.
 - The visual refinement was rendered at a 264px sidebar width in light and dark
   themes with 22 projects and seven pinned sessions. The shelf expanded fully
-  without a nested scrollbar, project and session titles used 12px text, ordinary
+  without a nested scrollbar, project and session titles used 10px text, ordinary
   loose-session rows showed no redundant project chip,
   project/group/session nesting stayed within the narrow column, and no slot
   errors appeared. Hover actions, keyboard disclosure with Enter, search and
@@ -281,7 +302,8 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
   running or waiting for a user interaction, not merely completed.
 - Adding a project requires a working `ctx.uiWorkspace.pickDirectory()`. A
   remote browser without the host directory picker cannot add projects.
-- This version does not offer session rename, fork, or delete; use the
+- Session rename is supported through the Host with the local-title fallback
+  described above. This version does not offer session fork or delete; use the
   conversation surface or re-enable the shipped sidebar for those actions.
 
 ## Develop

@@ -56,6 +56,8 @@ interface Group {
 interface State {
   version: number
   mode: string
+  orcaLayout: 'native' | 'switcher' | 'activity'
+  switcherProjectKey: string | null
   orderBy: string
   archivedFilter: string
   activeOnly: boolean
@@ -145,6 +147,14 @@ interface View {
 interface Internals {
   defaultState(): State
   sanitizeState(raw: unknown): State
+  buildActivityGroups(
+    entries: Array<{ session: Summary; project: ProjectView }>,
+    statusMap?: ReadonlyMap<string, { running?: boolean; pendingInteraction?: unknown }>,
+  ): {
+    running: Array<{ session: Summary; project: ProjectView }>
+    pending: Array<{ session: Summary; project: ProjectView }>
+    recent: Array<{ session: Summary; project: ProjectView }>
+  }
   buildView(input: {
     workspaceSnapshot: WorkspaceSnapshot
     sessionSnapshot: SessionSnapshot
@@ -497,6 +507,9 @@ describe('client bundle', () => {
     const pinnedBody = source.match(/\.orca-pinned-body\s*\{([^}]*)\}/)?.[1] ?? ''
     expect(pinnedBody).not.toContain('max-height')
     expect(pinnedBody).not.toContain('overflow-y')
+    const root = source.match(/\.orca-root\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(root).toContain('max-height: 100cqh')
+    expect(root).not.toContain('height: 100%')
     expect(source).toMatch(/\.orca-session-main\s*\{[^}]*font-size: var\(--orca-title-size\)/)
     expect(source).toMatch(/\.orca-project-head\s*\{[^}]*font-size: var\(--orca-title-size\)/)
   })
@@ -555,6 +568,130 @@ describe('client bundle', () => {
       /\[data-size='sm'\]\s*\{[^}]*--orca-title-size: 10px[^}]*--orca-chip-size: 9px/,
     )
     expect(source).toContain("[data-size='lg']")
+  })
+
+  it('defaults existing installations to Native Flow and sanitizes layout state', () => {
+    const client = loadClient()
+    expect(client.__internals.defaultState().orcaLayout).toBe('native')
+    const legacy = client.__internals.sanitizeState({ version: 1, mode: 'orca' })
+    expect(legacy.orcaLayout).toBe('native')
+    expect(legacy.switcherProjectKey).toBeNull()
+    const state = client.__internals.sanitizeState({
+      ...client.__internals.defaultState(),
+      orcaLayout: 'activity',
+      switcherProjectKey: '/projects/one/',
+    })
+    expect(state.orcaLayout).toBe('activity')
+    expect(state.switcherProjectKey).toBe('/projects/one')
+    expect(
+      client.__internals.sanitizeState({
+        ...client.__internals.defaultState(),
+        orcaLayout: 'unknown',
+      }).orcaLayout,
+    ).toBe('native')
+  })
+
+  it('renders all three Orca layouts with their distinct navigation', () => {
+    const native = renderSidebar({ mode: 'orca', orcaLayout: 'native' })
+    expect(native).toContain('data-orca-layout="native"')
+    expect(native).toContain('data-sidebar-list-area')
+    expect(native).toContain('orca-pinned-group')
+    expect(native).not.toContain('orca-project-switcher')
+
+    const switcher = renderSidebar({ mode: 'orca', orcaLayout: 'switcher' })
+    expect(switcher).toContain('data-orca-layout="switcher"')
+    expect(switcher).toContain('orca-project-switcher')
+    expect(switcher).toContain('data-project-key="/projects/one"')
+    expect(switcher).toContain('orca-switcher-tabs')
+    expect(switcher).toContain('aria-pressed="true"')
+
+    const activity = renderSidebar({ mode: 'orca', orcaLayout: 'activity' })
+    expect(activity).toContain('data-orca-layout="activity"')
+    expect(activity).toContain('orca-activity-filters')
+    expect(activity).toContain('data-activity-filter="all"')
+    expect(activity).toContain('activity.pending')
+    expect(activity).toContain('activity.running')
+    expect(activity).toContain('activity.recent')
+  })
+
+  it('keeps running, pending, and recent activity mutually exclusive', () => {
+    const client = loadClient()
+    const data = snapshots()
+    const state = client.__internals.defaultState()
+    const statusMap = new Map([
+      ['s-one', { running: true, pendingInteraction: null }],
+      ['s-pinned', { running: true, pendingInteraction: {} }],
+      ['s-two', { running: false, pendingInteraction: null }],
+    ])
+    const view = client.__internals.buildView({
+      ...data,
+      state,
+      statusMap,
+      currentId: 's-blank',
+    })
+    const groups = client.__internals.buildActivityGroups(view.flat, statusMap)
+    expect(groups.pending.map((entry) => entry.session.id)).toEqual(['s-pinned'])
+    expect(groups.running.map((entry) => entry.session.id)).toEqual(['s-one'])
+    expect(groups.recent.map((entry) => entry.session.id)).toContain('s-two')
+    const ids = [...groups.pending, ...groups.running, ...groups.recent].map(
+      (entry) => entry.session.id,
+    )
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(ids).toHaveLength(view.flat.length)
+  })
+
+  it('caps the initial recent activity batch while keeping active sections visible', () => {
+    const data = snapshots()
+    const target = data.workspaceSnapshot.items[1]
+    if (!target) throw new Error('missing activity test workspace')
+    for (let index = 0; index < 45; index += 1) {
+      const id = `extra-${index}`
+      target.sessionIds.push(id)
+      data.sessionSnapshot.ids.push(id)
+      data.sessionSnapshot.byId[id] = summary(
+        id,
+        `Extra ${index}`,
+        NOW - 10_000 - index,
+        '/projects/two',
+      )
+    }
+    const html = renderSidebar({ mode: 'orca', orcaLayout: 'activity' }, data)
+    expect(html.match(/data-session-id=/g) || []).toHaveLength(42)
+    expect(html).toContain('sessions.showMoreBatch')
+    expect(html).toContain('activity.pending')
+    expect(html).toContain('activity.running')
+
+    const blank = data.sessionSnapshot.byId['s-blank']
+    const oldest = data.sessionSnapshot.byId['extra-44']
+    if (!blank || !oldest) throw new Error('missing current-session pagination fixtures')
+    blank.retainedBy = {}
+    oldest.retainedBy = { mainView: 1 }
+    const withOldCurrent = renderSidebar({ mode: 'orca', orcaLayout: 'activity' }, data)
+    expect(withOldCurrent.match(/data-session-id=/g) || []).toHaveLength(43)
+    expect(withOldCurrent).toContain('data-session-id="extra-44"')
+  })
+
+  it('declares the Orca layout submenu and accessible menu behavior', () => {
+    const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+    expect(source).toContain('children: ORCA_LAYOUTS.map')
+    expect(source).toContain(`t(\`layout.\${layout}\`)`)
+    expect(source).toContain("'aria-haspopup': hasChildren ? 'menu' : undefined")
+    expect(source).toContain("event.key === 'ArrowRight'")
+    expect(source).toContain("event.key === 'ArrowLeft' && submenu")
+    expect(source).toContain('menuReturnFocus.current = document.activeElement')
+    expect(source).toContain('useSectionScroller')
+    expect(source).toContain('sectionScroller?.bindScrollerRef')
+  })
+
+  it('keeps dialog cancellation and focus containment safe by default', () => {
+    const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+    expect(source).toContain('dialog.danger && cancelRef.current')
+    expect(source).toContain("event.key !== 'Tab' || !dialogRef.current")
+    expect(source).toContain("document.addEventListener('keydown', onKeyDown, true)")
+    expect(source).toContain('restoreFocus(previous)')
+    expect(source).toContain('restoreFocus(target)')
+    expect(source).toContain("'.orca-project-head, .orca-group-head, .orca-session-main'")
+    expect(source).toContain('ref: cancelRef')
   })
 
   it('registers the browser with a negative priority and the plugin locale namespace', () => {
