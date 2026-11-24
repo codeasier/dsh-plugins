@@ -11,7 +11,8 @@ window.__ModuleLoader__.load({
     const ORCA_LAYOUTS = ['native', 'switcher', 'activity']
     const FILTERS = ['hide', 'all', 'only']
     const FONTS = ['system', 'mono', 'jetbrains']
-    const SIZES = ['sm', 'md', 'lg']
+    const MIN_FONT_SIZE = 10
+    const MAX_FONT_SIZE = 18
     const EMPTY_STATUS = new Map()
     const SessionStatusContext = React.createContext(null)
     const SessionNameContext = React.createContext(null)
@@ -82,7 +83,7 @@ window.__ModuleLoader__.load({
       'settings.fontDescription':
         'Use the Harness code font, JetBrains Mono, or the host interface font for project and session titles.',
       'settings.sizeDescription':
-        'Adjust title size and row density independently of the global Harness font settings.',
+        'Choose any integer from 10 to 18px. This adjusts title size and row density independently of the global Harness font settings.',
       'settings.preview': 'Title and density preview',
       'settings.previewProject': 'dsh-plugins',
       'settings.previewSession': 'Redesign the project sidebar',
@@ -262,7 +263,8 @@ window.__ModuleLoader__.load({
       'layout.activity.description': '在全局状态队列中优先显示进行中和等待处理的会话。',
       'settings.fontDescription':
         '项目和会话标题可使用 Harness 代码字体、JetBrains Mono 或宿主界面字体。',
-      'settings.sizeDescription': '独立调整标题字号和行密度，不改变 Harness 全局字体设置。',
+      'settings.sizeDescription':
+        '可选择 10–18px 之间的任意整数，独立调整标题字号和行密度，不改变 Harness 全局字体设置。',
       'settings.preview': '标题与密度预览',
       'settings.previewProject': 'dsh-plugins',
       'settings.previewSession': '重新设计项目侧栏',
@@ -778,7 +780,7 @@ window.__ModuleLoader__.load({
         archivedFilter: 'hide',
         activeOnly: false,
         font: 'mono',
-        fontSize: 'sm',
+        fontSize: 10,
         groups: [],
         assignments: {},
         projectNames: {},
@@ -791,12 +793,46 @@ window.__ModuleLoader__.load({
     }
 
     function resetOrcaAppearance(state) {
-      return { ...state, mode: 'orca', orcaLayout: 'native', font: 'mono', fontSize: 'sm' }
+      return { ...state, mode: 'orca', orcaLayout: 'native', font: 'mono', fontSize: 10 }
     }
 
     function asStringArray(value) {
       if (!Array.isArray(value)) return []
       return value.filter((entry) => typeof entry === 'string')
+    }
+
+    function sanitizeFontSize(value) {
+      if (value === 'sm') return 10
+      if (value === 'md') return 11
+      if (value === 'lg') return 12
+      if (typeof value === 'number' && Number.isSafeInteger(value)) {
+        return Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, value))
+      }
+      return 10
+    }
+
+    function parseFontSizeInput(value) {
+      if (typeof value === 'number') {
+        return Number.isSafeInteger(value) && value >= MIN_FONT_SIZE && value <= MAX_FONT_SIZE
+          ? value
+          : null
+      }
+      if (typeof value !== 'string' || value.trim() === '') return null
+      const parsed = Number(value)
+      if (!Number.isSafeInteger(parsed)) return null
+      return parsed >= MIN_FONT_SIZE && parsed <= MAX_FONT_SIZE ? parsed : null
+    }
+
+    function fontMetrics(value) {
+      const fontSize = sanitizeFontSize(value)
+      return {
+        '--orca-title-size': `${fontSize}px`,
+        '--orca-title-lh': `${fontSize + (fontSize <= 11 ? 5 : 6)}px`,
+        '--orca-chip-size': `${fontSize === 10 ? 9 : 10}px`,
+        '--orca-chip-h': `${fontSize + 4}px`,
+        '--orca-row-min': `${fontSize <= 11 ? fontSize + 20 : fontSize + 21}px`,
+        '--orca-row-min-meta': `${fontSize === 10 ? 38 : fontSize === 11 ? 40 : fontSize + 31}px`,
+      }
     }
 
     function sanitizeState(raw) {
@@ -811,7 +847,7 @@ window.__ModuleLoader__.load({
       if (FILTERS.includes(raw.archivedFilter)) next.archivedFilter = raw.archivedFilter
       if (typeof raw.activeOnly === 'boolean') next.activeOnly = raw.activeOnly
       if (FONTS.includes(raw.font)) next.font = raw.font
-      if (SIZES.includes(raw.fontSize)) next.fontSize = raw.fontSize
+      next.fontSize = sanitizeFontSize(raw.fontSize)
 
       if (Array.isArray(raw.groups)) {
         const seen = new Set()
@@ -3285,6 +3321,23 @@ window.__ModuleLoader__.load({
 
     function OrcaSettings({ t }) {
       const state = useSharedState()
+      const [fontSizeDraft, setFontSizeDraft] = React.useState(String(state.fontSize))
+      React.useEffect(() => setFontSizeDraft(String(state.fontSize)), [state.fontSize])
+      const metrics = fontMetrics(state.fontSize)
+      const applyFontSize = (value) => {
+        const parsed = parseFontSizeInput(value)
+        if (parsed === null) return null
+        updateSharedState((prev) => ({ ...prev, fontSize: parsed }))
+        return parsed
+      }
+      const changeFontSizeDraft = (value) => {
+        setFontSizeDraft(value)
+        applyFontSize(value)
+      }
+      const settleFontSizeDraft = (value) => {
+        const applied = applyFontSize(value)
+        setFontSizeDraft(String(applied ?? state.fontSize))
+      }
       const layouts = [
         ['native', t('layout.native'), t('layout.native.description')],
         ['switcher', t('layout.switcher'), t('layout.switcher.description')],
@@ -3295,11 +3348,6 @@ window.__ModuleLoader__.load({
         ['jetbrains', t('font.jetbrains')],
         ['system', t('font.system')],
       ]
-      const sizes = [
-        ['sm', `10px · ${t('size.sm')}`],
-        ['md', `11px · ${t('size.md')}`],
-        ['lg', `12px · ${t('size.lg')}`],
-      ]
       return h(
         'section',
         {
@@ -3307,6 +3355,10 @@ window.__ModuleLoader__.load({
           'data-font': state.font,
           'data-size': state.fontSize,
           'data-orca-layout': state.orcaLayout,
+          style: {
+            '--orca-settings-title-size': metrics['--orca-title-size'],
+            '--orca-settings-title-lh': metrics['--orca-title-lh'],
+          },
         },
         h(
           'header',
@@ -3383,15 +3435,45 @@ window.__ModuleLoader__.load({
           h('p', { className: 'orca-settings-hint' }, t('settings.sizeDescription')),
           h(
             'div',
-            { className: 'orca-settings-options orca-settings-sizes' },
-            sizes.map(([value, label]) =>
-              h(SettingsChoice, {
-                key: value,
-                selected: state.fontSize === value,
-                title: label,
-                onClick: () => updateSharedState((prev) => ({ ...prev, fontSize: value })),
+            { className: 'orca-settings-range' },
+            h('input', {
+              type: 'range',
+              min: MIN_FONT_SIZE,
+              max: MAX_FONT_SIZE,
+              step: 1,
+              value: state.fontSize,
+              'aria-label': t('appearance.size'),
+              onChange: (event) =>
+                updateSharedState((prev) => ({
+                  ...prev,
+                  fontSize: Number(event.currentTarget.value),
+                })),
+            }),
+            h(
+              'div',
+              { className: 'orca-settings-number' },
+              h('input', {
+                type: 'number',
+                min: MIN_FONT_SIZE,
+                max: MAX_FONT_SIZE,
+                step: 1,
+                inputMode: 'numeric',
+                value: fontSizeDraft,
+                'aria-label': t('appearance.size'),
+                onChange: (event) => changeFontSizeDraft(event.currentTarget.value),
+                onBlur: (event) => settleFontSizeDraft(event.currentTarget.value),
+                onKeyDown: (event) => {
+                  if (event.key === 'Enter') event.currentTarget.blur()
+                },
               }),
+              h('span', null, 'px'),
             ),
+          ),
+          h(
+            'div',
+            { className: 'orca-settings-range-bounds', 'aria-hidden': 'true' },
+            h('span', null, `${MIN_FONT_SIZE}px`),
+            h('span', null, `${MAX_FONT_SIZE}px`),
           ),
         ),
         h(
@@ -4634,6 +4716,7 @@ window.__ModuleLoader__.load({
           'data-orca-layout': state.mode === 'orca' ? state.orcaLayout : undefined,
           'data-font': state.font,
           'data-size': state.fontSize,
+          style: fontMetrics(state.fontSize),
         },
         h(Header, {
           t,
@@ -4794,30 +4877,6 @@ window.__ModuleLoader__.load({
       .orca-root[data-font='jetbrains'] .orca-group-title,
       .orca-root[data-font='jetbrains'] .orca-loose-workspace-title {
         letter-spacing: -0.01em;
-      }
-      .orca-root[data-size='sm'] {
-        --orca-title-size: 10px;
-        --orca-title-lh: 15px;
-        --orca-chip-size: 9px;
-        --orca-chip-h: 14px;
-        --orca-row-min: 30px;
-        --orca-row-min-meta: 38px;
-      }
-      .orca-root[data-size='md'] {
-        --orca-title-size: 11px;
-        --orca-title-lh: 16px;
-        --orca-chip-size: 10px;
-        --orca-chip-h: 15px;
-        --orca-row-min: 31px;
-        --orca-row-min-meta: 40px;
-      }
-      .orca-root[data-size='lg'] {
-        --orca-title-size: 12px;
-        --orca-title-lh: 18px;
-        --orca-chip-size: 10px;
-        --orca-chip-h: 16px;
-        --orca-row-min: 33px;
-        --orca-row-min-meta: 43px;
       }
       .orca-header {
         flex: none;
@@ -6053,14 +6112,6 @@ window.__ModuleLoader__.load({
         font-size: 13px;
         line-height: 1.5;
       }
-      .orca-settings[data-size='md'] {
-        --orca-settings-title-size: 11px;
-        --orca-settings-title-lh: 16px;
-      }
-      .orca-settings[data-size='lg'] {
-        --orca-settings-title-size: 12px;
-        --orca-settings-title-lh: 18px;
-      }
       .orca-settings[data-font='mono'] .orca-settings-preview {
         font-family: var(--ds-font-family-code, 'SF Mono', Menlo, Consolas, monospace);
       }
@@ -6201,14 +6252,54 @@ window.__ModuleLoader__.load({
         flex: none;
         color: var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary));
       }
-      .orca-settings-sizes {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+      .orca-settings-range {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 88px;
+        align-items: center;
+        gap: 16px;
+      }
+      .orca-settings-range input[type='range'] {
+        width: 100%;
+        accent-color: var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary));
+        cursor: pointer;
+      }
+      .orca-settings-number {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        height: 34px;
+        padding: 0 8px;
+        border: 1px solid var(--dsw-alias-border-l2);
+        border-radius: var(--dsw-radius-sm, 8px);
+        background: transparent;
+        color: var(--dsw-alias-label-secondary);
+      }
+      .orca-settings-number:focus-within {
+        border-color: var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary));
+      }
+      .orca-settings-number input {
+        width: 52px;
+        padding: 0;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--dsw-alias-label-primary);
+        font: inherit;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+      }
+      .orca-settings-range-bounds {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 5px;
+        color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+        font-size: 10px;
       }
       .orca-settings-reset {
         margin-top: 24px;
       }
       @media (max-width: 480px) {
-        .orca-settings-sizes {
+        .orca-settings-range {
           grid-template-columns: 1fr;
         }
       }
@@ -6441,6 +6532,9 @@ window.__ModuleLoader__.load({
     const internals = {
       defaultState,
       sanitizeState,
+      sanitizeFontSize,
+      parseFontSizeInput,
+      fontMetrics,
       resetOrcaAppearance,
       getSharedState,
       updateSharedState,
