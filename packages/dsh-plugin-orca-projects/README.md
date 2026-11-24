@@ -77,12 +77,15 @@ default for existing and new installations.
   navigation.
 - **Appearance.** Open the avatar menu → **Settings** → **Orca-like** for a
   dedicated appearance page. It provides all three layouts, the host system
-  font, the DSH code-font stack, and `JetBrains Mono`, plus 10px, 11px, and 12px
-  title sizes, a live preview, and **Reset appearance**. The sidebar's view menu
+  font, the DSH code-font stack, and `JetBrains Mono`, plus any integer title size
+  from 10 to 18px with a slider and numeric input, a live preview, and **Reset
+  appearance**. The sidebar's view menu
   no longer duplicates font controls. The settings page and sidebar subscribe
   to the same persisted state, so changes in either place update the other
   immediately. Monospace at 10px remains the default; these preferences affect
-  only this plugin, not Harness's global font settings.
+  only this plugin, not Harness's global font settings. Legacy Small/Medium/Large
+  values migrate to 10/11/12px, while title line height and row density scale
+  through 18px.
 - **Custom groups.** Use a project's `...` menu → **移动到分组** to create a group
   or move the project into one. You can also drag a project onto a group. Group
   headers can be renamed, deleted, and used to add projects; deleting a group

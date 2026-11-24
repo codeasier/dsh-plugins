@@ -62,7 +62,7 @@ interface State {
   archivedFilter: string
   activeOnly: boolean
   font: string
-  fontSize: string
+  fontSize: number | 'sm' | 'md' | 'lg'
   groups: Group[]
   assignments: Record<string, string>
   projectNames: Record<string, string>
@@ -147,6 +147,9 @@ interface View {
 interface Internals {
   defaultState(): State
   sanitizeState(raw: unknown): State
+  sanitizeFontSize(value: unknown): number
+  parseFontSizeInput(value: unknown): number | null
+  fontMetrics(value: unknown): Record<string, string>
   resetOrcaAppearance(state: State): State
   getSharedState(): State
   updateSharedState(update: State | ((previous: State) => State)): State
@@ -572,21 +575,79 @@ describe('client bundle', () => {
     expect(source).toContain("'session.rename': '重命名会话'")
   })
 
-  it('exposes font and text-size preferences on the sidebar root', () => {
+  it('exposes font and numeric text-size preferences on the sidebar root', () => {
     const html = renderSidebar({ mode: 'orca' })
     expect(html).toContain('data-font="mono"')
-    expect(html).toContain('data-size="sm"')
+    expect(html).toContain('data-size="10"')
+    expect(html).toContain('--orca-title-size:10px')
     const system = renderSidebar({ mode: 'orca', font: 'system' })
     expect(system).toContain('data-font="system"')
     const large = renderSidebar({ mode: 'orca', fontSize: 'lg' })
-    expect(large).toContain('data-size="lg"')
+    expect(large).toContain('data-size="12"')
+    expect(large).toContain('--orca-title-size:12px')
     const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
     expect(source).toContain("[data-font='mono']")
     expect(source).toContain("[data-font='jetbrains']")
-    expect(source).toMatch(
-      /\[data-size='sm'\]\s*\{[^}]*--orca-title-size: 10px[^}]*--orca-chip-size: 9px/,
-    )
-    expect(source).toContain("[data-size='lg']")
+    expect(source).toContain('style: fontMetrics(state.fontSize)')
+    expect(source).not.toContain("[data-size='sm']")
+    expect(source).not.toContain("[data-size='lg']")
+  })
+
+  it('supports every integer from 10 to 18 and preserves legacy metrics', () => {
+    const client = loadClient()
+    const { sanitizeFontSize, fontMetrics } = client.__internals
+    expect(sanitizeFontSize('sm')).toBe(10)
+    expect(sanitizeFontSize('md')).toBe(11)
+    expect(sanitizeFontSize('lg')).toBe(12)
+    expect(sanitizeFontSize(13)).toBe(13)
+    expect(sanitizeFontSize(18)).toBe(18)
+    expect(sanitizeFontSize(9)).toBe(10)
+    expect(sanitizeFontSize(19)).toBe(18)
+    expect(sanitizeFontSize(12.5)).toBe(10)
+    expect(fontMetrics(10)).toMatchObject({
+      '--orca-title-size': '10px',
+      '--orca-title-lh': '15px',
+      '--orca-row-min': '30px',
+      '--orca-row-min-meta': '38px',
+    })
+    expect(fontMetrics(11)).toMatchObject({
+      '--orca-row-min': '31px',
+      '--orca-row-min-meta': '40px',
+    })
+    expect(fontMetrics(12)).toMatchObject({
+      '--orca-row-min': '33px',
+      '--orca-row-min-meta': '43px',
+    })
+    expect(fontMetrics(18)).toMatchObject({
+      '--orca-title-size': '18px',
+      '--orca-title-lh': '24px',
+      '--orca-row-min': '39px',
+      '--orca-row-min-meta': '49px',
+    })
+  })
+
+  it('applies valid numeric input live and keeps invalid input editable until blur', () => {
+    const client = loadClient()
+    const { parseFontSizeInput } = client.__internals
+    expect(parseFontSizeInput('13')).toBe(13)
+    expect(parseFontSizeInput('10')).toBe(10)
+    expect(parseFontSizeInput('18')).toBe(18)
+    expect(parseFontSizeInput(14)).toBe(14)
+    expect(parseFontSizeInput(' 15 ')).toBe(15)
+    expect(parseFontSizeInput('')).toBeNull()
+    expect(parseFontSizeInput('  ')).toBeNull()
+    expect(parseFontSizeInput('9')).toBeNull()
+    expect(parseFontSizeInput('19')).toBeNull()
+    expect(parseFontSizeInput('12.5')).toBeNull()
+    expect(parseFontSizeInput('1e1')).toBe(10)
+    expect(parseFontSizeInput('abc')).toBeNull()
+    expect(parseFontSizeInput(undefined)).toBeNull()
+
+    const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+    expect(source).toContain('onChange: (event) => changeFontSizeDraft(event.currentTarget.value)')
+    expect(source).toContain('onBlur: (event) => settleFontSizeDraft(event.currentTarget.value)')
+    expect(source).toContain('const applied = applyFontSize(value)')
+    expect(source).toContain('setFontSizeDraft(String(applied ?? state.fontSize))')
   })
 
   it('registers a dedicated Orca settings section and icon', () => {
@@ -618,7 +679,11 @@ describe('client bundle', () => {
     expect(html).toContain('orca-settings')
     expect(html).toContain('data-orca-layout="activity"')
     expect(html).toContain('data-font="system"')
-    expect(html).toContain('data-size="lg"')
+    expect(html).toContain('data-size="12"')
+    expect(html).toContain('type="range"')
+    expect(html).toContain('type="number"')
+    expect(html).toContain('min="10"')
+    expect(html).toContain('max="18"')
     expect(html).toContain('settings.title')
     expect(html).toContain('settings.preview')
     expect(html).toContain('settings.reset')
@@ -642,7 +707,7 @@ describe('client bundle', () => {
     expect(JSON.parse(storageValue || '{}')).toMatchObject({
       orcaLayout: 'switcher',
       font: 'jetbrains',
-      fontSize: 'md',
+      fontSize: 11,
     })
   })
 
@@ -661,7 +726,7 @@ describe('client bundle', () => {
       mode: 'orca',
       orcaLayout: 'native',
       font: 'mono',
-      fontSize: 'sm',
+      fontSize: 10,
       groups: previous.groups,
     })
   })
