@@ -65,8 +65,10 @@ function browserResolver(client: Client) {
       inject(_name: string, callback: () => void) {
         callback()
       },
-      register(options: { inject(): { resolveRepositories: typeof resolver } }) {
-        resolver = options.inject().resolveRepositories
+      register(options: { name: string; inject(): { resolveRepositories: typeof resolver } }) {
+        if (options.name === 'sidebar.workspaces') {
+          resolver = options.inject().resolveRepositories
+        }
       },
     },
   })

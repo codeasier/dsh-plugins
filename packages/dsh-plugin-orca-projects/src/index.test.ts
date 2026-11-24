@@ -147,6 +147,9 @@ interface View {
 interface Internals {
   defaultState(): State
   sanitizeState(raw: unknown): State
+  resetOrcaAppearance(state: State): State
+  getSharedState(): State
+  updateSharedState(update: State | ((previous: State) => State)): State
   buildActivityGroups(
     entries: Array<{ session: Summary; project: ProjectView }>,
     statusMap?: ReadonlyMap<string, { running?: boolean; pendingInteraction?: unknown }>,
@@ -362,7 +365,7 @@ function loadClient(): ClientModule {
       },
       localStorage: {
         getItem: () => storageValue,
-        setItem: (value: string) => {
+        setItem: (_key: string, value: string) => {
           storageValue = value
         },
       },
@@ -448,6 +451,7 @@ function makeContext(data = snapshots()): {
   const ctx = {
     get: (key: string) => services[key],
     locale: {
+      bind: () => (key: string) => key,
       register(...args: unknown[]) {
         localeCalls.push(args)
         return () => undefined
@@ -491,6 +495,21 @@ function renderSidebar(state: Partial<State>, data = snapshots()): string {
       ...(registration.options.inject as () => UnknownRecord)(),
       t: (key: string) => key,
       wide: true,
+    }),
+  )
+}
+
+function renderSettings(state: Partial<State>): string {
+  const client = loadClient()
+  const { ctx, registrations } = makeContext()
+  client.apply(ctx)
+  const registration = registrations.find((entry) => entry.options.name === 'settings.section')
+  if (registration === undefined) throw new Error('Orca settings section missing')
+  storageValue = JSON.stringify({ ...client.__internals.defaultState(), ...state })
+  return renderToString(
+    React.createElement(registration.component as React.ComponentType<UnknownRecord>, {
+      t: (key: string) => key,
+      close: () => undefined,
     }),
   )
 }
@@ -568,6 +587,96 @@ describe('client bundle', () => {
       /\[data-size='sm'\]\s*\{[^}]*--orca-title-size: 10px[^}]*--orca-chip-size: 9px/,
     )
     expect(source).toContain("[data-size='lg']")
+  })
+
+  it('registers a dedicated Orca settings section and icon', () => {
+    const client = loadClient()
+    const { ctx, registrations, injected } = makeContext()
+    client.apply(ctx)
+    expect(injected).toContain('settings.section')
+    expect(injected).toContain('settings.section.icon')
+    const section = registrations.find((entry) => entry.options.name === 'settings.section')
+    expect(section?.options).toMatchObject({
+      id: 'orca-projects',
+      order: 55,
+      locale: 'orcaSidebar',
+    })
+    if (!section || typeof section.options.label !== 'function') {
+      throw new Error('localized settings label missing')
+    }
+    expect(section.options.label()).toBe('settings.nav')
+    expect(
+      registrations.some(
+        (entry) =>
+          entry.options.name === 'settings.section.icon' && entry.options.id === 'orca-projects',
+      ),
+    ).toBe(true)
+  })
+
+  it('renders layout, font, size, preview, and reset controls in Settings', () => {
+    const html = renderSettings({ orcaLayout: 'activity', font: 'system', fontSize: 'lg' })
+    expect(html).toContain('orca-settings')
+    expect(html).toContain('data-orca-layout="activity"')
+    expect(html).toContain('data-font="system"')
+    expect(html).toContain('data-size="lg"')
+    expect(html).toContain('settings.title')
+    expect(html).toContain('settings.preview')
+    expect(html).toContain('settings.reset')
+    expect(html).toContain('layout.native')
+    expect(html).toContain('layout.switcher')
+    expect(html).toContain('layout.activity')
+    expect(html).toContain('aria-pressed="true"')
+  })
+
+  it('persists shared appearance changes for both Settings and the sidebar', () => {
+    storageValue = null
+    const client = loadClient()
+    const next = client.__internals.updateSharedState((previous) => ({
+      ...previous,
+      orcaLayout: 'switcher',
+      font: 'jetbrains',
+      fontSize: 'md',
+    }))
+    expect(next.orcaLayout).toBe('switcher')
+    expect(client.__internals.getSharedState().font).toBe('jetbrains')
+    expect(JSON.parse(storageValue || '{}')).toMatchObject({
+      orcaLayout: 'switcher',
+      font: 'jetbrains',
+      fontSize: 'md',
+    })
+  })
+
+  it('restores Orca mode as well as appearance defaults from non-Orca views', () => {
+    const client = loadClient()
+    const previous = {
+      ...client.__internals.defaultState(),
+      mode: 'flat',
+      orcaLayout: 'activity' as const,
+      font: 'system',
+      fontSize: 'lg' as const,
+      groups: [{ id: 'g-keep', name: 'Keep me' }],
+    }
+    const reset = client.__internals.resetOrcaAppearance(previous)
+    expect(reset).toMatchObject({
+      mode: 'orca',
+      orcaLayout: 'native',
+      font: 'mono',
+      fontSize: 'sm',
+      groups: previous.groups,
+    })
+  })
+
+  it('removes duplicate appearance controls from the sidebar view menu', () => {
+    const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+    const viewMenu =
+      source.match(
+        /const openViewMenu = \(event\) => \{([\s\S]*?)openMenuAtRect\(rect, items, 228\)/,
+      )?.[1] || ''
+    expect(viewMenu).not.toContain("t('appearance.font')")
+    expect(viewMenu).not.toContain("t('appearance.size')")
+    expect(viewMenu).not.toContain('setFont(')
+    expect(viewMenu).not.toContain('setFontSize(')
+    expect(source).toContain('settings.section')
   })
 
   it('defaults existing installations to Native Flow and sanitizes layout state', () => {
@@ -704,7 +813,9 @@ describe('client bundle', () => {
       expect.arrayContaining(['slots', 'locale', 'workspaces', 'sessions', 'uiWorkspace']),
     )
     expect(injected).toContain('sidebar.workspaces')
-    expect(registrations).toHaveLength(1)
+    expect(
+      registrations.filter((entry) => entry.options.name === 'sidebar.workspaces'),
+    ).toHaveLength(1)
     expect(registrations[0]?.options).toMatchObject({
       name: 'sidebar.workspaces',
       priority: -1,

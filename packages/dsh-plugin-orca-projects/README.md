@@ -75,12 +75,14 @@ default for existing and new installations.
   localized labels and tooltips; disclosure controls expose `aria-expanded`, and
   the current session exposes `aria-current` for keyboard and assistive-technology
   navigation.
-- **Appearance.** View options → **字体** switches between the host system font,
-  the DSH code-font stack, and `JetBrains Mono`; **字号** offers 10px, 11px, and
-  12px titles. Monospace at 10px is the default, and the worktree/project labels,
-  section headers, and row heights scale with it. Both choices persist in
-  `localStorage` beside the selected Orca layout and other view options, and only
-  affect this sidebar.
+- **Appearance.** Open the avatar menu → **Settings** → **Orca-like** for a
+  dedicated appearance page. It provides all three layouts, the host system
+  font, the DSH code-font stack, and `JetBrains Mono`, plus 10px, 11px, and 12px
+  title sizes, a live preview, and **Reset appearance**. The sidebar's view menu
+  no longer duplicates font controls. The settings page and sidebar subscribe
+  to the same persisted state, so changes in either place update the other
+  immediately. Monospace at 10px remains the default; these preferences affect
+  only this plugin, not Harness's global font settings.
 - **Custom groups.** Use a project's `...` menu → **移动到分组** to create a group
   or move the project into one. You can also drag a project onto a group. Group
   headers can be renamed, deleted, and used to add projects; deleting a group
@@ -124,7 +126,9 @@ occupant of `sidebar.workspaces` at priority `-1`, shadowing the shipped browser
 and re-creates the view-options menu with the extra mode. If this plugin crashes,
 the slot renderer falls back to the shipped browser. The shipped browser's
 per-row extension slots are not rendered by this sidebar in this version.
-The plugin observes the shipped browser's injected shortcut source, so DSH's
+Appearance preferences also register a dedicated `settings.section` and icon in
+the avatar-owned Settings panel rather than adding rows to the global Appearance
+section. The plugin observes the shipped browser's injected shortcut source, so DSH's
 `session.search` command opens and focuses this search field without replacing
 its default or user-configured key bindings.
 
@@ -211,6 +215,12 @@ so a Desktop window gets the same sidebar. Verified in the Web client at DSH
   and exposed empty Running / Needs input states. Session IDs were not duplicated
   across activity sections, and repeat layout switches produced no Orca runtime
   errors (the copied profile's unrelated account request returned 403).
+- The avatar-owned **Settings → Orca-like** page was verified in the same kind of
+  scratch profile in light and dark themes. Layout, JetBrains Mono, and 12px
+  changes updated the covered sidebar immediately and survived reload; changing
+  layout from the sidebar also updated the selected card in Settings. Reset
+  restored Native Flow, the DSH code font, and 10px, and the sidebar view menu
+  no longer contained font or size entries.
 - `pnpm check` passes (lint, typecheck, tests, build, conventions, docs, packs).
 - The client bundle registers the loader id, locale namespace, and
   `sidebar.workspaces` occupant; behavior tests cover the grouping model,
