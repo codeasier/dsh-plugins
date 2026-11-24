@@ -68,6 +68,25 @@ window.__ModuleLoader__.load({
       'font.mono': 'Monospace (SF Mono / Menlo)',
       'font.jetbrains': 'JetBrains Mono',
       'appearance.size': 'Text size',
+      'settings.nav': 'Orca-like',
+      'settings.title': 'Orca-like appearance',
+      'settings.description':
+        'Manage the project sidebar layout, font, and text size here. These preferences affect only this plugin.',
+      'settings.layoutDescription':
+        'Choose how projects and sessions are organized. You can also change this from the sidebar Orca-like submenu.',
+      'layout.native.description': 'Project tree, custom groups, and the global pinned shelf.',
+      'layout.switcher.description':
+        'Focus on one project with session, pinned, and worktree tabs.',
+      'layout.activity.description':
+        'Prioritize running and waiting sessions in a global activity queue.',
+      'settings.fontDescription':
+        'Use the Harness code font, JetBrains Mono, or the host interface font for project and session titles.',
+      'settings.sizeDescription':
+        'Adjust title size and row density independently of the global Harness font settings.',
+      'settings.preview': 'Title and density preview',
+      'settings.previewProject': 'dsh-plugins',
+      'settings.previewSession': 'Redesign the project sidebar',
+      'settings.reset': 'Reset appearance',
       'size.sm': 'Small',
       'size.md': 'Medium',
       'size.lg': 'Large',
@@ -232,6 +251,22 @@ window.__ModuleLoader__.load({
       'font.mono': '等宽（SF Mono / Menlo）',
       'font.jetbrains': 'JetBrains Mono',
       'appearance.size': '字号',
+      'settings.nav': 'Orca-like',
+      'settings.title': 'Orca-like 外观',
+      'settings.description':
+        '在这里集中管理项目侧栏的布局、字体样式和字号。这些选项只影响当前插件。',
+      'settings.layoutDescription':
+        '选择项目与会话的组织方式，也可以通过侧栏 Orca-like 二级菜单切换。',
+      'layout.native.description': '项目树、自定义分组和全局置顶会话架。',
+      'layout.switcher.description': '聚焦单个项目，切换会话、置顶和工作树。',
+      'layout.activity.description': '在全局状态队列中优先显示进行中和等待处理的会话。',
+      'settings.fontDescription':
+        '项目和会话标题可使用 Harness 代码字体、JetBrains Mono 或宿主界面字体。',
+      'settings.sizeDescription': '独立调整标题字号和行密度，不改变 Harness 全局字体设置。',
+      'settings.preview': '标题与密度预览',
+      'settings.previewProject': 'dsh-plugins',
+      'settings.previewSession': '重新设计项目侧栏',
+      'settings.reset': '恢复默认外观',
       'size.sm': '小',
       'size.md': '中',
       'size.lg': '大',
@@ -755,6 +790,10 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function resetOrcaAppearance(state) {
+      return { ...state, mode: 'orca', orcaLayout: 'native', font: 'mono', fontSize: 'sm' }
+    }
+
     function asStringArray(value) {
       if (!Array.isArray(value)) return []
       return value.filter((entry) => typeof entry === 'string')
@@ -865,6 +904,45 @@ window.__ModuleLoader__.load({
       } catch {
         // The browser may deny storage; the in-memory state still works.
       }
+    }
+
+    let sharedState
+    const sharedStateListeners = new Set()
+
+    function getSharedState() {
+      if (!sharedState) sharedState = loadState()
+      return sharedState
+    }
+
+    function updateSharedState(update) {
+      const previous = getSharedState()
+      sharedState = sanitizeState(typeof update === 'function' ? update(previous) : update)
+      saveState(sharedState)
+      for (const listener of sharedStateListeners) listener()
+      return sharedState
+    }
+
+    function subscribeSharedState(listener) {
+      sharedStateListeners.add(listener)
+      const onStorage = (event) => {
+        if (event.key !== STORAGE_KEY) return
+        sharedState = loadState()
+        listener()
+      }
+      window.addEventListener?.('storage', onStorage)
+      return () => {
+        sharedStateListeners.delete(listener)
+        window.removeEventListener?.('storage', onStorage)
+      }
+    }
+
+    function useSharedState() {
+      // Mounting a view rehydrates it once; subsequent updates ride the shared store.
+      React.useMemo(() => {
+        sharedState = loadState()
+        return sharedState
+      }, [])
+      return React.useSyncExternalStore(subscribeSharedState, getSharedState, getSharedState)
     }
 
     function nextGroupId() {
@@ -3182,6 +3260,156 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function SettingsChoice({ selected, title, description, onClick }) {
+      return h(
+        'button',
+        {
+          type: 'button',
+          className: cx('orca-settings-choice', selected && 'is-selected'),
+          'aria-pressed': selected,
+          onClick,
+        },
+        h(
+          'span',
+          { className: 'orca-settings-choice-copy' },
+          h('span', { className: 'orca-settings-choice-title' }, title),
+          description
+            ? h('span', { className: 'orca-settings-choice-description' }, description)
+            : null,
+        ),
+        selected
+          ? h(Icon, { name: 'check', size: 14, className: 'orca-settings-choice-check' })
+          : null,
+      )
+    }
+
+    function OrcaSettings({ t }) {
+      const state = useSharedState()
+      const layouts = [
+        ['native', t('layout.native'), t('layout.native.description')],
+        ['switcher', t('layout.switcher'), t('layout.switcher.description')],
+        ['activity', t('layout.activity'), t('layout.activity.description')],
+      ]
+      const fonts = [
+        ['mono', t('font.mono')],
+        ['jetbrains', t('font.jetbrains')],
+        ['system', t('font.system')],
+      ]
+      const sizes = [
+        ['sm', `10px · ${t('size.sm')}`],
+        ['md', `11px · ${t('size.md')}`],
+        ['lg', `12px · ${t('size.lg')}`],
+      ]
+      return h(
+        'section',
+        {
+          className: 'orca-settings',
+          'data-font': state.font,
+          'data-size': state.fontSize,
+          'data-orca-layout': state.orcaLayout,
+        },
+        h(
+          'header',
+          { className: 'orca-settings-header' },
+          h('h2', { className: 'orca-settings-title' }, t('settings.title')),
+          h('p', { className: 'orca-settings-description' }, t('settings.description')),
+        ),
+        h(
+          'div',
+          { className: 'orca-settings-preview', 'aria-label': t('settings.preview') },
+          h('div', { className: 'orca-settings-preview-label' }, t('settings.preview')),
+          h(
+            'div',
+            { className: 'orca-settings-preview-project' },
+            h(Icon, { name: 'folderOpen', size: 14 }),
+            h('span', null, t('settings.previewProject')),
+            h('span', { className: 'orca-settings-preview-count' }, '1'),
+          ),
+          h(
+            'div',
+            { className: 'orca-settings-preview-session' },
+            h('span', { className: 'orca-status-dot is-completed' }),
+            h('span', { className: 'orca-settings-preview-title' }, t('settings.previewSession')),
+            h('span', { className: 'orca-session-time' }, t('time.now')),
+          ),
+          h('div', { className: 'orca-settings-preview-meta' }, 'main · fix/theme'),
+        ),
+        h(
+          'fieldset',
+          { className: 'orca-settings-group' },
+          h('legend', null, t('section.groupBy')),
+          h('p', { className: 'orca-settings-hint' }, t('settings.layoutDescription')),
+          h(
+            'div',
+            { className: 'orca-settings-layouts' },
+            layouts.map(([value, label, description]) =>
+              h(SettingsChoice, {
+                key: value,
+                selected: state.orcaLayout === value,
+                title: label,
+                description,
+                onClick: () =>
+                  updateSharedState((prev) => ({
+                    ...prev,
+                    mode: 'orca',
+                    orcaLayout: value,
+                  })),
+              }),
+            ),
+          ),
+        ),
+        h(
+          'fieldset',
+          { className: 'orca-settings-group' },
+          h('legend', null, t('appearance.font')),
+          h('p', { className: 'orca-settings-hint' }, t('settings.fontDescription')),
+          h(
+            'div',
+            { className: 'orca-settings-options' },
+            fonts.map(([value, label]) =>
+              h(SettingsChoice, {
+                key: value,
+                selected: state.font === value,
+                title: label,
+                onClick: () => updateSharedState((prev) => ({ ...prev, font: value })),
+              }),
+            ),
+          ),
+        ),
+        h(
+          'fieldset',
+          { className: 'orca-settings-group' },
+          h('legend', null, t('appearance.size')),
+          h('p', { className: 'orca-settings-hint' }, t('settings.sizeDescription')),
+          h(
+            'div',
+            { className: 'orca-settings-options orca-settings-sizes' },
+            sizes.map(([value, label]) =>
+              h(SettingsChoice, {
+                key: value,
+                selected: state.fontSize === value,
+                title: label,
+                onClick: () => updateSharedState((prev) => ({ ...prev, fontSize: value })),
+              }),
+            ),
+          ),
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'orca-button orca-settings-reset',
+            onClick: () => updateSharedState((prev) => resetOrcaAppearance(prev)),
+          },
+          t('settings.reset'),
+        ),
+      )
+    }
+
+    function OrcaSettingsIcon() {
+      return h(Icon, { name: 'layers', size: 16 })
+    }
+
     function DialogLayer(props) {
       const { dialog, returnFocus, t, onCancel, onConfirm } = props
       const [value, setValue] = React.useState(dialog.value || '')
@@ -3357,7 +3585,8 @@ window.__ModuleLoader__.load({
       } = props
       const sectionScroller = (useSectionScroller || useFallbackSectionScroller)()
 
-      const [state, setState] = React.useState(loadState)
+      const state = useSharedState()
+      const setState = updateSharedState
       const [query, setQuery] = React.useState('')
       const [searchOpen, setSearchOpen] = React.useState(false)
       const [menu, setMenu] = React.useState(null)
@@ -3441,10 +3670,6 @@ window.__ModuleLoader__.load({
           controller.abort()
         }
       }, [workspacePathsKey, resolveRepositories])
-
-      React.useEffect(() => {
-        saveState(state)
-      }, [state])
 
       React.useEffect(
         () => () => {
@@ -3565,14 +3790,6 @@ window.__ModuleLoader__.load({
       }
       const setActiveOnly = (activeOnly) => {
         setState((prev) => ({ ...prev, activeOnly: Boolean(activeOnly) }))
-      }
-      const setFont = (font) => {
-        if (!FONTS.includes(font)) return
-        setState((prev) => ({ ...prev, font }))
-      }
-      const setFontSize = (fontSize) => {
-        if (!SIZES.includes(fontSize)) return
-        setState((prev) => ({ ...prev, fontSize }))
       }
 
       const toggleGroup = (key, defaultExpanded) => {
@@ -4190,40 +4407,6 @@ window.__ModuleLoader__.load({
             label: t('filter.only'),
             checked: state.archivedFilter === 'only',
             onSelect: () => setFilter('only'),
-          },
-          { divider: true },
-          { section: t('appearance.font') },
-          {
-            label: t('font.system'),
-            checked: state.font === 'system',
-            onSelect: () => setFont('system'),
-          },
-          {
-            label: t('font.mono'),
-            checked: state.font === 'mono',
-            onSelect: () => setFont('mono'),
-          },
-          {
-            label: t('font.jetbrains'),
-            checked: state.font === 'jetbrains',
-            onSelect: () => setFont('jetbrains'),
-          },
-          { divider: true },
-          { section: t('appearance.size') },
-          {
-            label: t('size.sm'),
-            checked: state.fontSize === 'sm',
-            onSelect: () => setFontSize('sm'),
-          },
-          {
-            label: t('size.md'),
-            checked: state.fontSize === 'md',
-            onSelect: () => setFontSize('md'),
-          },
-          {
-            label: t('size.lg'),
-            checked: state.fontSize === 'lg',
-            onSelect: () => setFontSize('lg'),
           },
         ]
         if (state.mode === 'orca') {
@@ -5861,6 +6044,174 @@ window.__ModuleLoader__.load({
       .orca-root[data-mode='orca'] .orca-worktree-row:focus-visible {
         outline-color: var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary));
       }
+      .orca-settings {
+        --orca-settings-title-size: 10px;
+        --orca-settings-title-lh: 15px;
+        width: 100%;
+        max-width: 760px;
+        color: var(--dsw-alias-label-primary);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .orca-settings[data-size='md'] {
+        --orca-settings-title-size: 11px;
+        --orca-settings-title-lh: 16px;
+      }
+      .orca-settings[data-size='lg'] {
+        --orca-settings-title-size: 12px;
+        --orca-settings-title-lh: 18px;
+      }
+      .orca-settings[data-font='mono'] .orca-settings-preview {
+        font-family: var(--ds-font-family-code, 'SF Mono', Menlo, Consolas, monospace);
+      }
+      .orca-settings[data-font='jetbrains'] .orca-settings-preview {
+        font-family: 'JetBrains Mono', var(--ds-font-family-code, monospace);
+      }
+      .orca-settings-header {
+        margin-bottom: 20px;
+      }
+      .orca-settings-title {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+      .orca-settings-description,
+      .orca-settings-hint {
+        margin: 6px 0 0;
+        color: var(--dsw-alias-label-secondary);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      .orca-settings-preview {
+        width: min(340px, 100%);
+        padding: 8px;
+        border: 1px solid var(--dsw-alias-border-l1);
+        border-radius: var(--dsw-radius-md, 12px);
+        background: var(--dsw-specific-sidebar-fill);
+      }
+      .orca-settings-preview-label {
+        padding: 0 4px 6px;
+        color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+        font-family: var(--dsw-font-family);
+        font-size: 10px;
+      }
+      .orca-settings-preview-project,
+      .orca-settings-preview-session {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+        min-height: 28px;
+        padding: 0 7px;
+        border-radius: var(--dsw-radius-sm, 8px);
+      }
+      .orca-settings-preview-project {
+        color: var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary));
+        font-size: var(--orca-settings-title-size);
+        font-weight: 600;
+      }
+      .orca-settings-preview-session {
+        background: var(--dsw-alias-interactive-bg-hover, transparent);
+      }
+      .orca-settings-preview-count {
+        margin-left: auto;
+        color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+        font-size: 9px;
+      }
+      .orca-settings-preview-title {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: var(--orca-settings-title-size);
+        line-height: var(--orca-settings-title-lh);
+      }
+      .orca-settings-preview-meta {
+        padding: 0 7px 2px 27px;
+        color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+        font-size: 9px;
+      }
+      .orca-settings-group {
+        min-width: 0;
+        margin: 24px 0 0;
+        padding: 0;
+        border: 0;
+      }
+      .orca-settings-group > legend {
+        padding: 0;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .orca-settings-hint {
+        margin-bottom: 10px;
+      }
+      .orca-settings-layouts,
+      .orca-settings-options {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+      .orca-settings-choice {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        min-width: 0;
+        padding: 11px 12px;
+        border: 1px solid var(--dsw-alias-border-l2);
+        border-radius: var(--dsw-radius-md, 12px);
+        background: transparent;
+        color: var(--dsw-alias-label-primary);
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .orca-settings-choice:hover {
+        border-color: var(--dsw-alias-border-l3, var(--dsw-alias-border-l2));
+        background: var(--dsw-alias-interactive-bg-hover, transparent);
+      }
+      .orca-settings-choice.is-selected {
+        border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary)) 55%, transparent);
+        background: color-mix(in srgb, var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary)) 6%, transparent);
+      }
+      .orca-settings-choice:focus-visible,
+      .orca-settings-reset:focus-visible {
+        outline: 2px solid var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary));
+        outline-offset: 2px;
+      }
+      .orca-settings-choice-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        flex: 1;
+        min-width: 0;
+      }
+      .orca-settings-choice-title {
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .orca-settings-choice-description {
+        color: var(--dsw-alias-label-secondary);
+        font-size: 11px;
+        line-height: 1.5;
+      }
+      .orca-settings-choice-check {
+        flex: none;
+        color: var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary));
+      }
+      .orca-settings-sizes {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .orca-settings-reset {
+        margin-top: 24px;
+      }
+      @media (max-width: 480px) {
+        .orca-settings-sizes {
+          grid-template-columns: 1fr;
+        }
+      }
       @media (hover: none) {
         .orca-project-actions,
         .orca-session-actions,
@@ -6062,11 +6413,37 @@ window.__ModuleLoader__.load({
           OrcaBrowser,
         ),
       )
+      ctx.slots.inject('settings.section.icon', () =>
+        ctx.slots.register(
+          {
+            name: 'settings.section.icon',
+            id: 'orca-projects',
+            order: 55,
+            locale: NS,
+          },
+          OrcaSettingsIcon,
+        ),
+      )
+      ctx.slots.inject('settings.section', () =>
+        ctx.slots.register(
+          {
+            name: 'settings.section',
+            id: 'orca-projects',
+            order: 55,
+            label: () => ctx.locale.bind(NS)('settings.nav'),
+            locale: NS,
+          },
+          OrcaSettings,
+        ),
+      )
     }
 
     const internals = {
       defaultState,
       sanitizeState,
+      resetOrcaAppearance,
+      getSharedState,
+      updateSharedState,
       buildActivityGroups,
       buildView,
       assignProject,

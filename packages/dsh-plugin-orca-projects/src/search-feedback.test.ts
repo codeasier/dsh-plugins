@@ -233,7 +233,7 @@ function setup(wide = true) {
       },
       register(options: RegistrationOptions, component: Component) {
         const { key, id, order, label, priority, locale, inject } = options
-        sidebar = {
+        const registration = {
           options: {
             ...(key !== undefined ? { key } : {}),
             ...(id !== undefined ? { id } : {}),
@@ -245,10 +245,11 @@ function setup(wide = true) {
           ...(inject !== undefined ? { inject } : {}),
           component,
         }
-        entries.push(sidebar)
+        if (options.name === 'sidebar.workspaces') sidebar = registration
+        entries.push(registration)
         changed()
         return () => {
-          entries.splice(entries.indexOf(sidebar as Entry), 1)
+          entries.splice(entries.indexOf(registration), 1)
           changed()
         }
       },
