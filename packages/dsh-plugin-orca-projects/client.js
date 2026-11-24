@@ -8,6 +8,7 @@ window.__ModuleLoader__.load({
     const STORAGE_KEY = 'dsh.orca-projects.v1'
     const UNGROUPED = '__ungrouped__'
     const MODES = ['orca', 'workspace', 'workspace-tree', 'flat']
+    const ORCA_LAYOUTS = ['native', 'switcher', 'activity']
     const FILTERS = ['hide', 'all', 'only']
     const FONTS = ['system', 'mono', 'jetbrains']
     const SIZES = ['sm', 'md', 'lg']
@@ -34,6 +35,26 @@ window.__ModuleLoader__.load({
       'group.workspaceTree': 'Workspace tree',
       'group.flat': 'Single list',
       'group.orca': 'Orca-like',
+      'layout.native': 'Native Flow',
+      'layout.switcher': 'Project Switcher',
+      'layout.activity': 'Attention Queue',
+      'switcher.sessions': 'Sessions',
+      'switcher.worktrees': 'Worktrees',
+      'switcher.choose': 'Choose project',
+      'switcher.currentBranch': 'Current worktree',
+      'switcher.recent': 'Recent sessions',
+      'switcher.emptyPinned': 'No pinned sessions in this project',
+      'empty.worktrees': 'No worktrees discovered',
+      'activity.all': 'All',
+      'activity.running': 'Running',
+      'activity.pending': 'Needs input',
+      'activity.recent': 'Recent sessions',
+      'activity.emptyRunning': 'No running sessions',
+      'activity.emptyPending': 'No sessions need your input',
+      'time.now': 'now',
+      'time.minutes': '{n}m',
+      'time.hours': '{n}h',
+      'time.days': '{n}d',
       'order.label': 'Sort by',
       'order.manual': 'Manual',
       'order.updated': 'Last updated',
@@ -151,6 +172,7 @@ window.__ModuleLoader__.load({
       'empty.projectsHint': 'Add a folder to start a project.',
       'empty.sessions': 'No sessions',
       'sessions.expand': 'Show {n} more sessions',
+      'sessions.showMoreBatch': 'Show 40 more ({n} left)',
       'sessions.collapsed': 'Show fewer',
       'empty.noMatches': 'No matching sessions',
       'empty.archivedOnly': 'No archived sessions',
@@ -177,6 +199,26 @@ window.__ModuleLoader__.load({
       'group.workspaceTree': '按工作区树',
       'group.flat': '单列表',
       'group.orca': 'Orca-like',
+      'layout.native': '原生项目树',
+      'layout.switcher': '单项目切换',
+      'layout.activity': '状态队列',
+      'switcher.sessions': '会话',
+      'switcher.worktrees': '工作树',
+      'switcher.choose': '选择项目',
+      'switcher.currentBranch': '当前工作树',
+      'switcher.recent': '最近会话',
+      'switcher.emptyPinned': '此项目暂无置顶会话',
+      'empty.worktrees': '尚未发现工作树',
+      'activity.all': '全部',
+      'activity.running': '进行中',
+      'activity.pending': '待处理',
+      'activity.recent': '最近会话',
+      'activity.emptyRunning': '暂无进行中的会话',
+      'activity.emptyPending': '暂无等待你处理的会话',
+      'time.now': '现在',
+      'time.minutes': '{n} 分钟',
+      'time.hours': '{n} 小时',
+      'time.days': '{n} 天',
       'order.label': '排序方式',
       'order.manual': '手动排序',
       'order.updated': '最近更新',
@@ -292,6 +334,7 @@ window.__ModuleLoader__.load({
       'empty.projectsHint': '添加一个文件夹来开始项目。',
       'empty.sessions': '暂无会话',
       'sessions.expand': '显示其余 {n} 个会话',
+      'sessions.showMoreBatch': '再显示 40 条（剩余 {n}）',
       'sessions.collapsed': '收起',
       'empty.noMatches': '无匹配会话',
       'empty.archivedOnly': '暂无已归档会话',
@@ -694,6 +737,8 @@ window.__ModuleLoader__.load({
       return {
         version: 1,
         mode: 'orca',
+        orcaLayout: 'native',
+        switcherProjectKey: null,
         orderBy: 'updated',
         archivedFilter: 'hide',
         activeOnly: false,
@@ -719,6 +764,10 @@ window.__ModuleLoader__.load({
       const next = defaultState()
       if (!raw || typeof raw !== 'object' || raw.version !== 1) return next
       if (MODES.includes(raw.mode)) next.mode = raw.mode
+      if (ORCA_LAYOUTS.includes(raw.orcaLayout)) next.orcaLayout = raw.orcaLayout
+      if (typeof raw.switcherProjectKey === 'string' && raw.switcherProjectKey) {
+        next.switcherProjectKey = normalizePath(raw.switcherProjectKey)
+      }
       if (raw.orderBy === 'manual' || raw.orderBy === 'updated') next.orderBy = raw.orderBy
       if (FILTERS.includes(raw.archivedFilter)) next.archivedFilter = raw.archivedFilter
       if (typeof raw.activeOnly === 'boolean') next.activeOnly = raw.activeOnly
@@ -1454,6 +1503,38 @@ window.__ModuleLoader__.load({
       return session.displayTitle || session.title || t('session.untitled')
     }
 
+    function relativeTime(value, t) {
+      const timestamp = Number(value) || 0
+      if (timestamp <= 0) return ''
+      const elapsed = Math.max(0, Date.now() - timestamp)
+      const minutes = Math.floor(elapsed / 60000)
+      if (minutes < 1) return t('time.now')
+      if (minutes < 60) return t('time.minutes', { n: minutes })
+      const hours = Math.floor(minutes / 60)
+      if (hours < 24) return t('time.hours', { n: hours })
+      const days = Math.floor(hours / 24)
+      if (days < 7) return t('time.days', { n: days })
+      const date = new Date(timestamp)
+      return `${date.getMonth() + 1}/${date.getDate()}`
+    }
+
+    function buildActivityGroups(entries, statusMap) {
+      const groups = { running: [], pending: [], recent: [] }
+      for (const entry of Array.isArray(entries) ? entries : []) {
+        const live =
+          statusMap && typeof statusMap.get === 'function'
+            ? statusMap.get(entry.session.id)
+            : undefined
+        const pending = Boolean(live?.pendingInteraction)
+        const running =
+          live && typeof live.running === 'boolean' ? live.running : entry.session.running === true
+        if (pending) groups.pending.push(entry)
+        else if (running) groups.running.push(entry)
+        else groups.recent.push(entry)
+      }
+      return groups
+    }
+
     function isWriteOwnedRefusal(error) {
       const message = errorMessage(error)
       return /already owned by an active write handle|already bound to an active write handle/i.test(
@@ -1483,6 +1564,16 @@ window.__ModuleLoader__.load({
       if (!event) return
       event.preventDefault()
       event.stopPropagation()
+    }
+
+    function restoreFocus(target) {
+      if (!target?.isConnected || typeof target.focus !== 'function') return
+      const row = target.closest?.('.orca-project-row, .orca-group-row, .orca-session')
+      const proxy = row?.querySelector('.orca-project-head, .orca-group-head, .orca-session-main')
+      if (proxy && proxy !== target && typeof proxy.focus === 'function') {
+        proxy.focus({ preventScroll: true })
+      }
+      target.focus({ preventScroll: true })
     }
 
     function clearDropIndicators() {
@@ -1576,7 +1667,7 @@ window.__ModuleLoader__.load({
       const pinHint = Boolean(props.pinHint)
       const nameOverlay = React.useContext(SessionNameContext)
       const title = nameOverlay?.[session.id] || sessionLabel(session, props.currentId, t)
-      const showMeta = variant === 'pinned' || variant === 'flat' || variant === 'search'
+      const showMeta = ['pinned', 'flat', 'search', 'activity'].includes(variant)
       const meta = showMeta
         ? project
           ? project.isUngrouped
@@ -1624,6 +1715,8 @@ window.__ModuleLoader__.load({
         ? h(Icon, { name: 'pinFilled', size: 10, className: 'orca-session-pin' })
         : null
       const titleBadge = h('span', { className: 'orca-session-title', title }, title)
+      const time = relativeTime(session.updatedAt, t)
+      const timeBadge = time ? h('span', { className: 'orca-session-time' }, time) : null
       const hasMeta = Boolean(worktreeBadge || projectBadge || pinnedHint || archivedBadge)
 
       const main = h(
@@ -1653,6 +1746,7 @@ window.__ModuleLoader__.load({
           h(SessionStatusIndicator, { running, completed, pending, archived, t }),
           pinGlyph,
           titleBadge,
+          timeBadge,
         ),
         h(
           'div',
@@ -2352,6 +2446,299 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function SessionList(props) {
+      const { entries, variant, t, actions, currentId, pinnedSet, archivedSet } = props
+      return entries.map((entry) =>
+        h(SessionRow, {
+          key: entry.session.id,
+          session: entry.session,
+          project: entry.project,
+          t,
+          actions,
+          variant,
+          pinned: pinnedSet.has(entry.session.id),
+          archived: archivedSet.has(entry.session.id),
+          current: currentId === entry.session.id,
+          currentId,
+        }),
+      )
+    }
+
+    function ProjectSwitcherView(props) {
+      const { view, state, t, actions, currentProjectKey, currentId, pinnedSet, archivedSet } =
+        props
+      const [tab, setTab] = React.useState('sessions')
+      const projects = view.projects
+      const selectedKey = state.switcherProjectKey || currentProjectKey
+      const project = projects.find((entry) => entry.key === selectedKey) || projects[0]
+      const workspaceBySession = React.useContext(WorkspacePathContext)
+      React.useEffect(() => setTab('sessions'), [project?.key])
+      if (!project) {
+        return h(EmptyState, {
+          icon: 'folder',
+          title: t('empty.projects'),
+          hint: t('empty.projectsHint'),
+          actionLabel: t('action.addProject'),
+          onAction: (event) => actions.addMenu(event, null),
+        })
+      }
+      const currentSession = project.sessions.find((session) => session.id === currentId)
+      const currentWorktree = currentSession
+        ? worktreeForSession(currentSession, project, workspaceBySession)
+        : null
+      const sessions =
+        tab === 'pinned'
+          ? project.pinnedFirst.filter((session) => pinnedSet.has(session.id))
+          : project.sessions
+      const entries = sessions.map((session) => ({ session, project }))
+      const tabs = [
+        ['sessions', t('switcher.sessions'), project.sessions.length],
+        [
+          'pinned',
+          t('pinned.short'),
+          project.pinnedFirst.filter((session) => pinnedSet.has(session.id)).length,
+        ],
+        ['worktrees', t('switcher.worktrees'), project.worktrees.length],
+      ]
+      return h(
+        'div',
+        { className: 'orca-view orca-switcher', 'data-project-key': project.key },
+        h(
+          'div',
+          { className: 'orca-switcher-project-row' },
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'orca-project-switcher',
+              onClick: (event) => actions.switcherMenu(event, projects, project.key),
+              'aria-label': t('switcher.choose'),
+              'aria-haspopup': 'menu',
+            },
+            h(Icon, { name: 'folderOpen', size: 15, className: 'orca-project-folder is-active' }),
+            h(
+              'span',
+              { className: 'orca-switcher-project-copy' },
+              h(
+                'span',
+                { className: 'orca-switcher-project-title' },
+                project.title || t('loose.title'),
+              ),
+              h(
+                'span',
+                { className: 'orca-switcher-project-path' },
+                project.path || t('loose.hint'),
+              ),
+            ),
+            h(Icon, { name: 'chevron', size: 11, className: 'orca-chevron is-open' }),
+          ),
+          project.workspaceId
+            ? h(IconButton, {
+                icon: 'plus',
+                label: t('project.newSession'),
+                onClick: () => actions.startSession(project),
+              })
+            : null,
+        ),
+        h(
+          'div',
+          { className: 'orca-switcher-tabs', role: 'group', 'aria-label': t('switcher.choose') },
+          tabs.map(([value, label, count]) =>
+            h(
+              'button',
+              {
+                key: value,
+                type: 'button',
+                'aria-pressed': tab === value,
+                title: `${label} ${count}`,
+                className: cx('orca-switcher-tab', tab === value && 'is-active'),
+                onClick: () => setTab(value),
+              },
+              `${label} ${count}`,
+            ),
+          ),
+        ),
+        currentWorktree && tab !== 'worktrees'
+          ? h(
+              'div',
+              { className: 'orca-switcher-context' },
+              h('span', null, t('switcher.currentBranch')),
+              h('span', { className: 'orca-switcher-branch' }, currentWorktree.label),
+            )
+          : null,
+        tab === 'worktrees'
+          ? h(
+              'div',
+              { className: 'orca-switcher-worktrees' },
+              project.worktrees.map((worktree) =>
+                h(
+                  'button',
+                  {
+                    key: worktree.path,
+                    type: 'button',
+                    className: 'orca-worktree-row',
+                    onClick: () => actions.startSessionIn(worktree),
+                    title: worktree.path,
+                  },
+                  h(Icon, { name: 'layers', size: 13 }),
+                  h('span', { className: 'orca-worktree-row-title' }, worktree.label),
+                  h('span', { className: 'orca-worktree-row-count' }, worktree.sessionCount || 0),
+                  h(Icon, { name: 'plus', size: 12 }),
+                ),
+              ),
+              project.worktrees.length === 0
+                ? h('div', { className: 'orca-empty-inline' }, t('empty.worktrees'))
+                : null,
+            )
+          : h(
+              'div',
+              { className: 'orca-switcher-sessions' },
+              h(SessionList, {
+                entries,
+                variant: 'switcher',
+                t,
+                actions,
+                currentId,
+                pinnedSet,
+                archivedSet,
+              }),
+              entries.length === 0
+                ? h(
+                    'div',
+                    { className: 'orca-empty-inline' },
+                    tab === 'pinned' ? t('switcher.emptyPinned') : t('empty.sessions'),
+                  )
+                : null,
+            ),
+      )
+    }
+
+    function ActivitySection(props) {
+      const { label, entries } = props
+      if (entries.length === 0) return null
+      return h(
+        'section',
+        { className: 'orca-activity-section' },
+        h(
+          'div',
+          { className: 'orca-activity-heading' },
+          h('span', null, label),
+          h('span', { className: 'orca-activity-count' }, String(props.total ?? entries.length)),
+        ),
+        h(SessionList, { ...props, entries, variant: 'activity' }),
+      )
+    }
+
+    function ActivityView(props) {
+      const { view, t, actions, currentId, pinnedSet, archivedSet } = props
+      const [filter, setFilter] = React.useState('all')
+      const [recentLimit, setRecentLimit] = React.useState(40)
+      const statusMap = React.useContext(SessionStatusContext)
+      const groups = React.useMemo(
+        () => buildActivityGroups(view.flat, statusMap),
+        [view.flat, statusMap],
+      )
+      const filters = [
+        ['all', t('activity.all'), view.flat.length],
+        ['running', t('activity.running'), groups.running.length],
+        ['pending', t('activity.pending'), groups.pending.length],
+      ]
+      const visible = {
+        running: filter === 'all' || filter === 'running' ? groups.running : [],
+        pending: filter === 'all' || filter === 'pending' ? groups.pending : [],
+        recent:
+          filter === 'all'
+            ? groups.recent.filter(
+                (entry, index) => index < recentLimit || entry.session.id === currentId,
+              )
+            : [],
+      }
+      const hiddenRecent = filter === 'all' ? groups.recent.length - visible.recent.length : 0
+      const visibleCount = visible.running.length + visible.pending.length + visible.recent.length
+      return h(
+        'div',
+        { className: 'orca-view orca-activity', 'data-activity-filter': filter },
+        h(
+          'div',
+          {
+            className: 'orca-activity-filters',
+            role: 'group',
+            'aria-label': t('title.sessions'),
+          },
+          filters.map(([value, label, count]) =>
+            h(
+              'button',
+              {
+                key: value,
+                type: 'button',
+                'aria-pressed': filter === value,
+                title: `${label} ${count}`,
+                className: cx('orca-activity-filter', filter === value && 'is-active'),
+                onClick: () => setFilter(value),
+              },
+              `${label} ${count}`,
+            ),
+          ),
+        ),
+        visibleCount === 0
+          ? h(EmptyState, {
+              icon: 'chat',
+              title:
+                filter === 'running'
+                  ? t('activity.emptyRunning')
+                  : filter === 'pending'
+                    ? t('activity.emptyPending')
+                    : t('empty.sessions'),
+              hint: filter === 'all' ? t('empty.projectsHint') : undefined,
+            })
+          : [
+              h(ActivitySection, {
+                key: 'pending',
+                label: t('activity.pending'),
+                entries: visible.pending,
+                t,
+                actions,
+                currentId,
+                pinnedSet,
+                archivedSet,
+              }),
+              h(ActivitySection, {
+                key: 'running',
+                label: t('activity.running'),
+                entries: visible.running,
+                t,
+                actions,
+                currentId,
+                pinnedSet,
+                archivedSet,
+              }),
+              h(ActivitySection, {
+                key: 'recent',
+                label: t('activity.recent'),
+                entries: visible.recent,
+                total: groups.recent.length,
+                t,
+                actions,
+                currentId,
+                pinnedSet,
+                archivedSet,
+              }),
+              hiddenRecent > 0
+                ? h(
+                    'button',
+                    {
+                      key: 'recent-more',
+                      type: 'button',
+                      className: 'orca-show-more',
+                      onClick: () => setRecentLimit((limit) => limit + 40),
+                    },
+                    t('sessions.showMoreBatch', { n: hiddenRecent }),
+                  )
+                : null,
+            ],
+      )
+    }
+
     function WorkspaceView(props) {
       const { view, state, t, actions, currentId, pinnedSet, archivedSet } = props
       const list = React.useMemo(() => {
@@ -2594,17 +2981,100 @@ window.__ModuleLoader__.load({
 
     function MenuLayer(props) {
       const { menu, onClose } = props
-      const ref = React.useRef(null)
+      const rootRef = React.useRef(null)
+      const [submenu, setSubmenu] = React.useState(null)
+
+      const openSubmenu = (event, item, index) => {
+        if (!Array.isArray(item.children) || item.children.length === 0) {
+          setSubmenu(null)
+          return
+        }
+        const rect = event.currentTarget.getBoundingClientRect()
+        const width = Math.min(220, Math.max(180, window.innerWidth - 16))
+        const x =
+          rect.right + width + 12 <= window.innerWidth
+            ? rect.right + 4
+            : Math.max(8, rect.left - width - 4)
+        const estimated = item.children.reduce(
+          (sum, child) => sum + (child.section ? 26 : child.divider ? 9 : 31),
+          8,
+        )
+        const y = Math.max(8, Math.min(rect.top - 4, window.innerHeight - estimated - 8))
+        setSubmenu({ index, items: item.children, x, y, width })
+      }
+
+      React.useEffect(() => {
+        rootRef.current
+          ?.querySelector('[data-menu-root] button.orca-menu-item:not(:disabled)')
+          ?.focus()
+      }, [])
+
       React.useEffect(() => {
         const onPointerDown = (event) => {
-          if (!ref.current || ref.current.contains(event.target)) return
+          if (!rootRef.current || rootRef.current.contains(event.target)) return
           onClose()
         }
         const onKeyDown = (event) => {
-          if (event.key === 'Escape') onClose()
+          if (!rootRef.current?.contains(event.target)) return
+          if (event.key === 'Escape') {
+            stopEvent(event)
+            if (submenu) {
+              setSubmenu(null)
+              rootRef.current
+                ?.querySelector(`[data-menu-root] [data-submenu-index="${submenu.index}"]`)
+                ?.focus()
+            } else onClose()
+            return
+          }
+          if (event.key === 'ArrowLeft' && submenu) {
+            stopEvent(event)
+            setSubmenu(null)
+            rootRef.current
+              ?.querySelector(`[data-menu-root] [data-submenu-index="${submenu.index}"]`)
+              ?.focus()
+            return
+          }
+          const surface = event.target.closest?.('.orca-menu')
+          if (!surface || !rootRef.current.contains(surface)) return
+          const buttons = Array.from(
+            surface.querySelectorAll('button.orca-menu-item:not(:disabled)'),
+          )
+          const index = buttons.indexOf(event.target.closest?.('button.orca-menu-item'))
+          if (event.key === 'ArrowRight') {
+            const button = event.target.closest?.('button.orca-menu-item')
+            const itemIndex = Number(button?.dataset.menuIndex)
+            const items = surface.hasAttribute('data-menu-root') ? menu.items : submenu?.items || []
+            const item = items[itemIndex]
+            if (item?.children && button) {
+              stopEvent(event)
+              openSubmenu({ currentTarget: button }, item, itemIndex)
+              window.setTimeout(
+                () =>
+                  rootRef.current
+                    ?.querySelector('.orca-submenu button.orca-menu-item:not(:disabled)')
+                    ?.focus(),
+                0,
+              )
+            }
+            return
+          }
+          if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key) || buttons.length === 0)
+            return
+          stopEvent(event)
+          const next =
+            event.key === 'Home'
+              ? 0
+              : event.key === 'End'
+                ? buttons.length - 1
+                : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length
+          buttons[next]?.focus()
         }
         const onScroll = (event) => {
-          if (ref.current && event.target instanceof Node && ref.current.contains(event.target))
+          if (
+            rootRef.current &&
+            event.target instanceof Node &&
+            rootRef.current.contains(event.target)
+          )
             return
           onClose()
         }
@@ -2618,43 +3088,52 @@ window.__ModuleLoader__.load({
           window.removeEventListener('resize', onScroll)
           window.removeEventListener('scroll', onScroll, true)
         }
-      }, [onClose])
+      }, [menu.items, onClose, submenu])
 
-      return h(
-        'div',
-        {
-          ref,
-          className: 'orca-menu',
-          role: 'menu',
-          style: { left: menu.x, top: menu.y, width: menu.width },
-        },
-        menu.items.map((item, index) => {
-          if (item.divider)
+      const renderItems = (items, root) =>
+        items.map((item, index) => {
+          if (item.divider) {
             return h('div', {
               key: `divider-${index}`,
               className: 'orca-menu-divider',
               role: 'separator',
             })
-          if (item.section)
+          }
+          if (item.section) {
             return h(
               'div',
               { key: `section-${index}`, className: 'orca-menu-section' },
               item.section,
             )
+          }
+          const hasChildren = Array.isArray(item.children) && item.children.length > 0
           return h(
             'button',
             {
               key: `item-${index}`,
               type: 'button',
               role: 'menuitem',
+              'data-menu-index': index,
+              'data-submenu-index': hasChildren ? index : undefined,
+              'aria-haspopup': hasChildren ? 'menu' : undefined,
+              'aria-expanded': hasChildren ? submenu?.index === index : undefined,
               className: cx(
                 'orca-menu-item',
                 item.danger && 'is-danger',
                 item.disabled && 'is-disabled',
               ),
               disabled: item.disabled,
-              onClick: () => {
+              onMouseEnter: (event) => {
+                if (root && hasChildren) openSubmenu(event, item, index)
+                else if (root) setSubmenu(null)
+              },
+              onClick: (event) => {
                 if (item.disabled) return
+                if (hasChildren) {
+                  if (item.onSelect) item.onSelect()
+                  openSubmenu(event, item, index)
+                  return
+                }
                 onClose()
                 if (item.onSelect) item.onSelect()
               },
@@ -2669,24 +3148,93 @@ window.__ModuleLoader__.load({
             item.checked
               ? h(Icon, { name: 'check', size: 13, className: 'orca-menu-check' })
               : null,
+            hasChildren
+              ? h(Icon, { name: 'chevron', size: 12, className: 'orca-menu-check' })
+              : null,
           )
-        }),
+        })
+
+      return h(
+        'div',
+        { ref: rootRef },
+        h(
+          'div',
+          {
+            className: 'orca-menu',
+            'data-menu-root': 'true',
+            role: 'menu',
+            style: { left: menu.x, top: menu.y, width: menu.width },
+          },
+          renderItems(menu.items, true),
+        ),
+        submenu
+          ? h(
+              'div',
+              {
+                className: 'orca-menu orca-submenu',
+                role: 'menu',
+                'aria-label': menu.items[submenu.index]?.label || 'Submenu',
+                style: { left: submenu.x, top: submenu.y, width: submenu.width },
+              },
+              renderItems(submenu.items, false),
+            )
+          : null,
       )
     }
 
     function DialogLayer(props) {
-      const { dialog, t, onCancel, onConfirm } = props
+      const { dialog, returnFocus, t, onCancel, onConfirm } = props
       const [value, setValue] = React.useState(dialog.value || '')
       const inputRef = React.useRef(null)
+      const dialogRef = React.useRef(null)
+      const cancelRef = React.useRef(null)
       const primaryRef = React.useRef(null)
+      React.useEffect(() => {
+        const previous = returnFocus || document.activeElement
+        const onKeyDown = (event) => {
+          if (event.key === 'Escape') {
+            stopEvent(event)
+            onCancel()
+            return
+          }
+          if (event.key !== 'Tab' || !dialogRef.current) return
+          const items = Array.from(
+            dialogRef.current.querySelectorAll(
+              'button:not(:disabled), input:not(:disabled), [tabindex="0"]',
+            ),
+          )
+          if (items.length === 0) {
+            stopEvent(event)
+            dialogRef.current.focus()
+            return
+          }
+          const first = items[0]
+          const last = items[items.length - 1]
+          const active = document.activeElement
+          if (event.shiftKey && (active === first || !dialogRef.current.contains(active))) {
+            stopEvent(event)
+            last.focus()
+          } else if (!event.shiftKey && active === last) {
+            stopEvent(event)
+            first.focus()
+          }
+        }
+        document.addEventListener('keydown', onKeyDown, true)
+        return () => {
+          document.removeEventListener('keydown', onKeyDown, true)
+          restoreFocus(previous)
+        }
+      }, [onCancel, returnFocus])
       React.useEffect(() => {
         if (dialog.input && inputRef.current) {
           inputRef.current.focus()
           inputRef.current.select()
+        } else if (dialog.danger && cancelRef.current) {
+          cancelRef.current.focus()
         } else if (primaryRef.current) {
           primaryRef.current.focus()
         }
-      }, [dialog.input])
+      }, [dialog.input, dialog.danger])
       const canConfirm = !dialog.input || value.trim().length > 0
       const submit = () => {
         if (!canConfirm) return
@@ -2705,6 +3253,8 @@ window.__ModuleLoader__.load({
           'div',
           {
             className: 'orca-dialog',
+            ref: dialogRef,
+            tabIndex: -1,
             role: 'dialog',
             'aria-modal': 'true',
             'aria-label': dialog.title,
@@ -2738,7 +3288,7 @@ window.__ModuleLoader__.load({
             { className: 'orca-dialog-actions' },
             h(
               'button',
-              { type: 'button', className: 'orca-button', onClick: onCancel },
+              { ref: cancelRef, type: 'button', className: 'orca-button', onClick: onCancel },
               t('dialog.cancel'),
             ),
             h(
@@ -2777,6 +3327,10 @@ window.__ModuleLoader__.load({
     }
     const EMPTY_SESSIONS = { ids: [], byId: {} }
 
+    function useFallbackSectionScroller() {
+      return { bindScrollerRef: undefined }
+    }
+
     function OrcaBrowser(props) {
       const {
         t,
@@ -2786,6 +3340,7 @@ window.__ModuleLoader__.load({
         sessionSource,
         sessionStatusSource,
         layoutSource,
+        useSectionScroller,
         searchRequestSource,
         resolveRepositories,
         openSession: openSessionService,
@@ -2800,6 +3355,7 @@ window.__ModuleLoader__.load({
         unarchiveSession: unarchiveSessionService,
         renameSession: renameSessionService,
       } = props
+      const sectionScroller = (useSectionScroller || useFallbackSectionScroller)()
 
       const [state, setState] = React.useState(loadState)
       const [query, setQuery] = React.useState('')
@@ -2809,6 +3365,8 @@ window.__ModuleLoader__.load({
       const [toast, setToast] = React.useState(null)
       const [repoMap, setRepoMap] = React.useState(null)
       const toastTimer = React.useRef(undefined)
+      const menuReturnFocus = React.useRef(null)
+      const dialogReturnFocus = React.useRef(null)
       const searchRoot = React.useRef(null)
       const lastSearchRequest = React.useRef(0)
       const searchFocusPending = React.useRef(false)
@@ -2938,11 +3496,38 @@ window.__ModuleLoader__.load({
       )
       const currentProject = currentId ? view.projectBySession.get(currentId) : undefined
       const currentProjectKey = currentProject ? currentProject.key : undefined
+      const previousSwitcherCurrent = React.useRef(currentProjectKey)
+      React.useEffect(() => {
+        const changed = previousSwitcherCurrent.current !== currentProjectKey
+        previousSwitcherCurrent.current = currentProjectKey
+        if (
+          !changed ||
+          state.mode !== 'orca' ||
+          state.orcaLayout !== 'switcher' ||
+          !currentProjectKey
+        )
+          return
+        setState((prev) =>
+          prev.switcherProjectKey === currentProjectKey
+            ? prev
+            : { ...prev, switcherProjectKey: currentProjectKey },
+        )
+      }, [state.mode, state.orcaLayout, currentProjectKey])
 
-      const closeMenu = React.useCallback(() => setMenu(null), [])
+      const closeMenu = React.useCallback(() => {
+        setMenu(null)
+        const target = menuReturnFocus.current
+        restoreFocus(target)
+        menuReturnFocus.current = null
+      }, [])
       const closeDialog = React.useCallback(() => setDialog(null), [])
+      const openDialog = (next) => {
+        dialogReturnFocus.current = document.activeElement
+        setDialog(next)
+      }
 
       const openMenuAtRect = React.useCallback((rect, items, width) => {
+        menuReturnFocus.current = document.activeElement
         const menuWidth = Math.min(width || 248, Math.max(180, window.innerWidth - 16))
         const estimated = items.reduce(
           (sum, item) => sum + (item.section ? 26 : item.divider ? 9 : 31),
@@ -2966,6 +3551,11 @@ window.__ModuleLoader__.load({
       const setMode = (mode) => {
         if (!MODES.includes(mode)) return
         setState((prev) => ({ ...prev, mode }))
+      }
+      const setOrcaLayout = (orcaLayout) => {
+        if (!ORCA_LAYOUTS.includes(orcaLayout)) return
+        setState((prev) => ({ ...prev, mode: 'orca', orcaLayout }))
+        if (orcaLayout === 'activity') setSearchOpen(true)
       }
       const setOrderBy = (orderBy) => {
         setState((prev) => ({ ...prev, orderBy }))
@@ -3088,7 +3678,7 @@ window.__ModuleLoader__.load({
           showToast(t('session.archived', { name: sessionTitle }))
         } catch (error) {
           if (!stopActivity && isActiveWorkRefusal(error)) {
-            setDialog({
+            openDialog({
               key: `d${Date.now()}`,
               kind: 'archive-confirm',
               sessionId,
@@ -3128,7 +3718,7 @@ window.__ModuleLoader__.load({
           showToast(t('session.renameUnavailable'), 'error')
           return
         }
-        setDialog({
+        openDialog({
           key: `d${Date.now()}`,
           kind: 'session-rename',
           sessionId: session.id,
@@ -3525,6 +4115,24 @@ window.__ModuleLoader__.load({
         openMenuAtRect(rect, items)
       }
 
+      const openProjectSwitcherMenu = (event, projects, selectedKey) => {
+        const rect = event.currentTarget.getBoundingClientRect()
+        openMenuAtRect(
+          rect,
+          [
+            { section: t('switcher.choose') },
+            ...projects.map((project) => ({
+              label: project.title || t('loose.title'),
+              icon: project.isUngrouped ? 'inbox' : 'folder',
+              checked: project.key === selectedKey,
+              badge: String(project.sessions.length),
+              onSelect: () => setState((prev) => ({ ...prev, switcherProjectKey: project.key })),
+            })),
+          ],
+          248,
+        )
+      }
+
       const openViewMenu = (event) => {
         const rect = event.currentTarget.getBoundingClientRect()
         const items = [
@@ -3547,8 +4155,12 @@ window.__ModuleLoader__.load({
           {
             label: t('group.orca'),
             checked: state.mode === 'orca',
-            badge: t('new'),
             onSelect: () => setMode('orca'),
+            children: ORCA_LAYOUTS.map((layout) => ({
+              label: t(`layout.${layout}`),
+              checked: state.orcaLayout === layout,
+              onSelect: () => setOrcaLayout(layout),
+            })),
           },
           { divider: true },
           { section: t('order.label') },
@@ -3657,7 +4269,7 @@ window.__ModuleLoader__.load({
           sessionId,
           projectId,
         }))
-        setDialog({
+        openDialog({
           key: `d${Date.now()}`,
           kind: 'migration-confirm',
           preview,
@@ -3699,7 +4311,7 @@ window.__ModuleLoader__.load({
       }
 
       const openNewGroupDialog = (assignPath) => {
-        setDialog({
+        openDialog({
           key: `d${Date.now()}`,
           kind: 'group-new',
           assignPath,
@@ -3711,7 +4323,7 @@ window.__ModuleLoader__.load({
         })
       }
       const openRenameGroupDialog = (group) => {
-        setDialog({
+        openDialog({
           key: `d${Date.now()}`,
           kind: 'group-rename',
           id: group.id,
@@ -3723,7 +4335,7 @@ window.__ModuleLoader__.load({
         })
       }
       const openDeleteGroupDialog = (group) => {
-        setDialog({
+        openDialog({
           key: `d${Date.now()}`,
           kind: 'group-delete',
           id: group.id,
@@ -3734,7 +4346,7 @@ window.__ModuleLoader__.load({
         })
       }
       const openRenameProjectDialog = (project) => {
-        setDialog({
+        openDialog({
           key: `d${Date.now()}`,
           kind: 'project-rename',
           projectKey: project.key,
@@ -3752,7 +4364,7 @@ window.__ModuleLoader__.load({
             ? [project.workspaceId]
             : []
         const many = workspaceIds.length > 1
-        setDialog({
+        openDialog({
           key: `d${Date.now()}`,
           kind: 'project-delete',
           workspaceIds,
@@ -3811,6 +4423,8 @@ window.__ModuleLoader__.load({
         resetName: resetSessionName,
         menu: openSessionMenu,
         startSession,
+        startSessionIn,
+        switcherMenu: openProjectSwitcherMenu,
         openWorkspace,
         projectMenu: openProjectMenu,
         groupMenu: openGroupMenu,
@@ -3834,6 +4448,7 @@ window.__ModuleLoader__.load({
           ref: searchRoot,
           className: 'orca-root',
           'data-mode': state.mode,
+          'data-orca-layout': state.mode === 'orca' ? state.orcaLayout : undefined,
           'data-font': state.font,
           'data-size': state.fontSize,
         },
@@ -3850,7 +4465,11 @@ window.__ModuleLoader__.load({
         }),
         h(
           'div',
-          { className: 'orca-scroll' },
+          {
+            ref: wide ? sectionScroller?.bindScrollerRef : undefined,
+            className: 'orca-scroll',
+            'data-sidebar-list-area': '',
+          },
           query.trim()
             ? h(SearchView, {
                 view,
@@ -3863,8 +4482,8 @@ window.__ModuleLoader__.load({
                   setQuery('')
                 },
               })
-            : state.mode === 'orca'
-              ? h(OrcaView, {
+            : state.mode === 'orca' && state.orcaLayout === 'switcher'
+              ? h(ProjectSwitcherView, {
                   view,
                   state,
                   t,
@@ -3873,42 +4492,63 @@ window.__ModuleLoader__.load({
                   currentId: currentForView,
                   pinnedSet,
                   archivedSet,
-                  drag,
                 })
-              : state.mode === 'workspace'
-                ? h(WorkspaceView, {
+              : state.mode === 'orca' && state.orcaLayout === 'activity'
+                ? h(ActivityView, {
                     view,
-                    state,
                     t,
                     actions,
-                    currentProjectKey,
                     currentId: currentForView,
                     pinnedSet,
                     archivedSet,
                   })
-                : state.mode === 'workspace-tree'
-                  ? h(TreeView, {
+                : state.mode === 'orca'
+                  ? h(OrcaView, {
                       view,
                       state,
                       t,
                       actions,
+                      currentProjectKey,
                       currentId: currentForView,
                       pinnedSet,
                       archivedSet,
+                      drag,
                     })
-                  : h(FlatView, {
-                      view,
-                      t,
-                      actions,
-                      currentId: currentForView,
-                      archivedSet,
-                    }),
+                  : state.mode === 'workspace'
+                    ? h(WorkspaceView, {
+                        view,
+                        state,
+                        t,
+                        actions,
+                        currentProjectKey,
+                        currentId: currentForView,
+                        pinnedSet,
+                        archivedSet,
+                      })
+                    : state.mode === 'workspace-tree'
+                      ? h(TreeView, {
+                          view,
+                          state,
+                          t,
+                          actions,
+                          currentId: currentForView,
+                          pinnedSet,
+                          archivedSet,
+                        })
+                      : h(FlatView, {
+                          view,
+                          t,
+                          actions,
+                          currentId: currentForView,
+                          archivedSet,
+                        }),
         ),
         menu ? h(MenuLayer, { key: menu.key, menu, onClose: closeMenu }) : null,
         dialog
           ? h(DialogLayer, {
               key: dialog.key,
               dialog,
+              returnFocus: dialogReturnFocus.current,
               t,
               onCancel: closeDialog,
               onConfirm: confirmDialog,
@@ -3946,17 +4586,18 @@ window.__ModuleLoader__.load({
         --orca-row-min: 30px;
         --orca-row-min-meta: 38px;
         display: flex;
+        flex: none;
         flex-direction: column;
         min-width: 0;
         min-height: 0;
-        height: 100%;
+        max-height: 100cqh;
         color: var(--dsw-alias-label-primary);
         font-size: 14px;
         line-height: 1.4;
         -webkit-font-smoothing: antialiased;
       }
       .orca-root[data-font='mono'] {
-        font-family: 'SF Mono', Menlo, Monaco, Consolas, 'Courier New', monospace;
+        font-family: var(--ds-font-family-code, 'SF Mono', Menlo, Monaco, Consolas, 'Courier New', monospace);
       }
       .orca-root[data-font='jetbrains'] {
         font-family: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
@@ -4108,7 +4749,8 @@ window.__ModuleLoader__.load({
         overflow-y: auto;
         padding: 2px 6px 18px;
         scrollbar-width: thin;
-        scrollbar-color: var(--dsw-alias-scrollbar-bg-l2, transparent) transparent;
+        scrollbar-gutter: stable;
+        scrollbar-color: var(--dsh-scrollbar-thumb, var(--dsw-alias-scrollbar-bg-l2, transparent)) transparent;
       }
       .orca-view {
         display: flex;
@@ -4478,7 +5120,7 @@ window.__ModuleLoader__.load({
       }
       .orca-session-pin {
         flex: none;
-        color: var(--dsw-alias-brand-primary);
+        color: var(--dsw-alias-label-caption, var(--dsw-alias-label-secondary));
       }
       .orca-session-project {
         display: inline-flex;
@@ -4787,14 +5429,14 @@ window.__ModuleLoader__.load({
         align-items: center;
         justify-content: center;
         padding: 20px;
-        background: color-mix(in srgb, var(--dsw-alias-label-primary) 24%, transparent);
+        background: var(--dsw-alias-bg-mask-1, color-mix(in srgb, var(--dsw-alias-label-primary) 24%, transparent));
       }
       .orca-dialog {
         width: min(340px, calc(100vw - 32px));
         padding: 16px;
-        border: 1px solid var(--dsw-alias-border-l1);
-        border-radius: 12px;
-        background: var(--dsw-alias-bg-layer-1);
+        border: 1px solid var(--dsw-alias-border-l2);
+        border-radius: var(--dsw-radius-md, 12px);
+        background: var(--dsw-alias-bg-overlay);
         box-shadow: 0 14px 40px color-mix(in srgb, var(--dsw-alias-label-primary) 22%, transparent);
       }
       .orca-dialog-title {
@@ -4892,7 +5534,7 @@ window.__ModuleLoader__.load({
         z-index: 2;
         height: 2px;
         border-radius: 2px;
-        background: var(--dsw-alias-brand-primary);
+        background: var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary));
         pointer-events: none;
       }
       .orca-project-row[data-orca-drop="before"]::before,
@@ -4904,8 +5546,320 @@ window.__ModuleLoader__.load({
         bottom: -1px;
       }
       [data-orca-drop="group"] {
-        background: color-mix(in srgb, var(--dsw-alias-brand-primary) 9%, transparent);
-        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-brand-primary) 45%, transparent);
+        background: color-mix(in srgb, var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary)) 9%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary)) 45%, transparent);
+      }
+      .orca-session-time {
+        flex: none;
+        margin-left: 6px;
+        color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+        font-size: 9px;
+        font-variant-numeric: tabular-nums;
+        line-height: 14px;
+        white-space: nowrap;
+      }
+      .orca-menu {
+        border-color: var(--dsw-alias-border-l2);
+        border-radius: var(--dsw-radius-md, 12px);
+        background: var(--dsw-alias-bg-overlay);
+      }
+      .orca-submenu {
+        z-index: 96;
+      }
+      .orca-root[data-mode='orca'] {
+        --orca-hover: var(--dsw-alias-interactive-bg-hover, color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent));
+      }
+      .orca-root[data-mode='orca'] .orca-pinned-group,
+      .orca-root[data-mode='orca'] .orca-group-head,
+      .orca-root[data-mode='orca'] .orca-project,
+      .orca-root[data-mode='orca'] .orca-loose-workspace-body,
+      .orca-root[data-mode='orca'] .orca-view.orca-flat,
+      .orca-root[data-mode='orca'] .orca-view.orca-search {
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+      .orca-root[data-mode='orca'] .orca-pinned-group {
+        margin-bottom: 6px;
+        overflow: visible;
+      }
+      .orca-root[data-mode='orca'] .orca-pinned-group .orca-pinned-head,
+      .orca-root[data-mode='orca'] .orca-group--ungrouped .orca-group-head,
+      .orca-root[data-mode='orca'] .orca-group-head:hover {
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+      .orca-root[data-mode='orca'] .orca-pinned-group:not(.is-collapsed) .orca-pinned-head,
+      .orca-root[data-mode='orca'] .orca-project-body {
+        border-top: 0;
+      }
+      .orca-root[data-mode='orca'] .orca-pinned-body,
+      .orca-root[data-mode='orca'] .orca-project-body,
+      .orca-root[data-mode='orca'] .orca-project-body.is-guided {
+        padding: 0;
+      }
+      .orca-root[data-mode='orca'] .orca-group-body {
+        margin-top: 2px;
+        padding-bottom: 0;
+        border-left-color: var(--dsw-alias-border-l2);
+      }
+      .orca-root[data-mode='orca'] .orca-project-head,
+      .orca-root[data-mode='orca'] .orca-group-head,
+      .orca-root[data-mode='orca'] .orca-loose-workspace-head {
+        border-radius: var(--dsw-radius-md, 12px);
+      }
+      .orca-root[data-mode='orca'] .orca-project.has-current > .orca-project-row .orca-project-head {
+        background: transparent;
+      }
+      .orca-root[data-mode='orca'] .orca-project.has-current > .orca-project-row .orca-project-title {
+        color: var(--dsw-alias-label-primary);
+      }
+      .orca-root[data-mode='orca'] .orca-project.has-current .orca-project-folder,
+      .orca-project-folder.is-active {
+        color: var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary));
+      }
+      .orca-root[data-mode='orca'] .orca-session {
+        border-bottom: 0;
+        border-radius: var(--dsw-radius-md, 12px);
+      }
+      .orca-root[data-mode='orca'] .orca-session.is-current {
+        border-radius: var(--dsw-radius-md, 12px);
+        background: var(--orca-hover);
+        box-shadow: none;
+      }
+      .orca-root[data-mode='orca'] .orca-session-main {
+        border-radius: var(--dsw-radius-md, 12px);
+      }
+      .orca-root[data-mode='orca'] .orca-count {
+        min-width: 0;
+        height: auto;
+        padding: 0;
+        background: transparent;
+        color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+      }
+      .orca-root[data-mode='orca'] .orca-project-worktrees,
+      .orca-root[data-mode='orca'] .orca-worktree,
+      .orca-root[data-mode='orca'] .orca-worktree:not(.is-main),
+      .orca-root[data-mode='orca'] .orca-session-project {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+      }
+      .orca-root[data-mode='orca'] .orca-session-actions,
+      .orca-root[data-mode='orca'] .orca-project-actions,
+      .orca-root[data-mode='orca'] .orca-group-actions {
+        background: transparent;
+        box-shadow: none;
+      }
+      .orca-root[data-mode='orca'] .orca-session.is-pinned-ref .orca-session-title,
+      .orca-root[data-mode='orca'] .orca-session.is-pinned-ref .orca-session-subline {
+        opacity: 1;
+        color: var(--dsw-alias-label-secondary);
+      }
+      .orca-root[data-mode='orca'] .orca-session.is-archived .orca-session-title,
+      .orca-root[data-mode='orca'] .orca-session.is-archived .orca-session-subline {
+        opacity: 1;
+        color: var(--dsw-alias-label-caption, var(--dsw-alias-label-secondary));
+      }
+      @media (hover: hover) {
+        .orca-root[data-mode='orca'] .orca-session:hover .orca-session-time,
+        .orca-root[data-mode='orca'] .orca-session:focus-within .orca-session-time,
+        .orca-root[data-mode='orca'] .orca-project-row:hover .orca-count,
+        .orca-root[data-mode='orca'] .orca-project-row:focus-within .orca-count,
+        .orca-root[data-mode='orca'] .orca-project-row:hover .orca-project-worktrees,
+        .orca-root[data-mode='orca'] .orca-project-row:focus-within .orca-project-worktrees {
+          visibility: hidden;
+        }
+      }
+      .orca-switcher-project-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin: 0 6px 8px;
+      }
+      .orca-project-switcher {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        flex: 1;
+        min-width: 0;
+        min-height: 48px;
+        padding: 7px 9px;
+        border: 1px solid var(--dsw-alias-border-l2);
+        border-radius: var(--dsw-radius-md, 12px);
+        background: transparent;
+        color: var(--dsw-alias-label-primary);
+        text-align: left;
+        cursor: pointer;
+      }
+      .orca-project-switcher:hover {
+        background: var(--orca-hover);
+      }
+      .orca-switcher-project-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        flex: 1;
+        min-width: 0;
+      }
+      .orca-switcher-project-title,
+      .orca-switcher-project-path {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .orca-switcher-project-title {
+        font-size: var(--orca-title-size);
+        font-weight: 600;
+        line-height: var(--orca-title-lh);
+      }
+      .orca-switcher-project-path {
+        color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+        font-size: 9px;
+        line-height: 13px;
+      }
+      .orca-switcher-tabs {
+        display: flex;
+        gap: 2px;
+        margin: 0 6px 7px;
+        padding: 2px;
+        border-radius: var(--dsw-radius-sm, 8px);
+        background: var(--orca-hover);
+      }
+      .orca-switcher-tab {
+        flex: 1;
+        min-width: 0;
+        height: 26px;
+        padding: 0 5px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+        font: inherit;
+        font-size: 10px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        cursor: pointer;
+      }
+      .orca-switcher-tab.is-active {
+        background: var(--dsw-alias-button-elevated-fill, var(--dsw-alias-bg-layer-1));
+        color: var(--dsw-alias-label-primary);
+        box-shadow: 0 1px 3px color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
+      }
+      .orca-switcher-context {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 6px 12px;
+        color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+        font-size: 9px;
+      }
+      .orca-switcher-branch {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .orca-switcher-sessions,
+      .orca-switcher-worktrees {
+        display: flex;
+        flex-direction: column;
+      }
+      .orca-worktree-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 32px;
+        margin: 1px 6px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: var(--dsw-radius-md, 12px);
+        background: transparent;
+        color: var(--dsw-alias-label-secondary);
+        font: inherit;
+        font-size: var(--orca-title-size);
+        text-align: left;
+        cursor: pointer;
+      }
+      .orca-worktree-row:hover {
+        background: var(--orca-hover);
+        color: var(--dsw-alias-label-primary);
+      }
+      .orca-worktree-row-title {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .orca-worktree-row-count {
+        color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+        font-size: 9px;
+      }
+      .orca-activity-filters {
+        position: sticky;
+        top: 0;
+        z-index: 3;
+        display: flex;
+        gap: 2px;
+        margin: 0 6px 7px;
+        padding-top: 2px;
+        border-bottom: 1px solid var(--dsw-alias-border-l1);
+        background: color-mix(in srgb, var(--dsw-specific-sidebar-fill) 92%, transparent);
+        -webkit-backdrop-filter: blur(16px);
+        backdrop-filter: blur(16px);
+      }
+      .orca-activity-filter {
+        flex: 1;
+        min-width: 0;
+        height: 30px;
+        padding: 0 5px;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+        font: inherit;
+        font-size: 10px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        cursor: pointer;
+      }
+      .orca-activity-filter.is-active {
+        border-bottom-color: var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary));
+        color: var(--dsw-alias-label-primary);
+        font-weight: 600;
+      }
+      .orca-activity-section {
+        margin-bottom: 7px;
+      }
+      .orca-activity-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 7px 12px 4px;
+        color: var(--dsw-alias-label-tertiary, var(--dsw-alias-label-secondary));
+        font-size: 10px;
+        font-weight: 600;
+      }
+      .orca-activity-count {
+        font-size: 9px;
+        font-weight: 400;
+        font-variant-numeric: tabular-nums;
+      }
+      .orca-root[data-mode='orca'] .orca-icon-button:focus-visible,
+      .orca-root[data-mode='orca'] .orca-project-head:focus-visible,
+      .orca-root[data-mode='orca'] .orca-group-head:focus-visible,
+      .orca-root[data-mode='orca'] .orca-session-main:focus-visible,
+      .orca-root[data-mode='orca'] .orca-project-switcher:focus-visible,
+      .orca-root[data-mode='orca'] .orca-switcher-tab:focus-visible,
+      .orca-root[data-mode='orca'] .orca-activity-filter:focus-visible,
+      .orca-root[data-mode='orca'] .orca-worktree-row:focus-visible {
+        outline-color: var(--dsw-alias-state-business-primary, var(--dsw-alias-brand-primary));
       }
       @media (hover: none) {
         .orca-project-actions,
@@ -5113,6 +6067,7 @@ window.__ModuleLoader__.load({
     const internals = {
       defaultState,
       sanitizeState,
+      buildActivityGroups,
       buildView,
       assignProject,
       renameProject,
